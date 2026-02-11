@@ -603,7 +603,8 @@ function generateReportText(result) {
 function parseFirstNumber(text, regex, divisor = 1) {
   const m = text.match(regex);
   if (!m) return null;
-  const value = Number(String(m[1]).replace(/[,]/g, ""));
+  const raw = m[m.length - 1];
+  const value = Number(String(raw).replace(/[,]/g, ""));
   return Number.isFinite(value) ? value / divisor : null;
 }
 
@@ -619,48 +620,64 @@ function parseCsv(text) {
   });
 }
 
-function clearExistingTenants() {
-  document.getElementById("tenantContainer").innerHTML = "";
-  state.tenantCount = 0;
-}
 
-function clearExistingCapex() {
-  document.getElementById("capexContainer").innerHTML = "";
-  state.capexCount = 0;
-}
+function extractPdfTextFromBytes(bytes) {
+  const latin = new TextDecoder("latin1").decode(bytes);
+  const chunks = [];
 
-function prefillFromExtraction(extract) {
-  if (extract.purchasePrice != null) setVal("purchasePrice", extract.purchasePrice);
-  if (extract.grossSf != null) setVal("grossSf", extract.grossSf);
-  if (extract.exitCapRate != null) setVal("exitCapRate", extract.exitCapRate);
-  if (extract.opexRatio != null) setVal("opexRatio", extract.opexRatio);
-  if (extract.initialLtv != null) setVal("initialLtv", extract.initialLtv);
-  if (extract.reservesMonthly != null) setVal("reservesMonthly", extract.reservesMonthly);
-  if (extract.holdYears != null) setVal("holdYears", extract.holdYears);
-
-  if (extract.tenants.length) {
-    clearExistingTenants();
-    extract.tenants.forEach((t) => {
-      addTenant();
-      const idx = state.tenantCount;
-      setVal(`tenant_name_${idx}`, t.name || `Tenant ${idx}`);
-      setVal(`tenant_sf_${idx}`, t.sf || 0);
-      setVal(`tenant_suite_${idx}`, t.suite || `Suite ${100 + idx}`);
-      setVal(`tenant_start_${idx}`, t.startMonth || 1);
-      setVal(`tenant_exp_${idx}`, t.expMonth || 24);
-      setVal(`tenant_rent_${idx}`, t.currentRent || 0);
-      setVal(`tenant_bump_${idx}`, t.annualBump || 0.03);
-      setVal(`tenant_downtime_${idx}`, t.downtimeMonths || 3);
-      setVal(`tenant_recovery_${idx}`, t.recoveryPct || 0.85);
-      setVal(`tenant_credit_${idx}`, t.creditLossPct || 0.01);
-      setVal(`tenant_mla_${idx}`, t.mlaName || "MLA-1");
-    });
+  // Extract literal PDF strings in parentheses.
+  const stringMatches = latin.match(/\((?:\.|[^\)]){3,}\)/g) || [];
+  for (const m of stringMatches) {
+    chunks.push(m.slice(1, -1).replace(/\n/g, " ").replace(/\r/g, " "));
   }
 
-  if (extract.capexLines.length) {
-    clearExistingCapex();
-    extract.capexLines.forEach((x) => addCapexLine(x.month || 1, x.category || "General", x.amount || 0, x.reimbPct ?? 0.5, x.notes || ""));
+  // Fallback: long printable runs.
+  const printableMatches = latin.match(/[A-Za-z0-9$%,.\/()\-:\s]{25,}/g) || [];
+  chunks.push(...printableMatches);
+
+  return chunks.join("\n");
+}
+
+function parseRentRollRowsFromText(text) {
+  const tenants = [];
+  const lines = text.split(/\r?\n/);
+
+  const rowRegexes = [
+    /([A-Za-z][A-Za-z0-9 &.'\/-]{2,})\s+([\d,]{2,})\s+([\d]+(?:\.\d{1,2})?)\s+(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2})/,
+    /([A-Za-z][A-Za-z0-9 &.'\/-]{2,})\s+sf\s*[:\-]?\s*([\d,]{2,}).*?rent\s*[:\-]?\s*([\d]+(?:\.\d{1,2})?).*?(?:exp|expiry|expiration)\s*[:\-]?\s*(\d+)/i,
+  ];
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (line.length < 12) continue;
+    for (const rx of rowRegexes) {
+      const m = line.match(rx);
+      if (!m) continue;
+
+      const sf = Number((m[2] || "0").replace(/,/g, ""));
+      const rent = Number(m[3] || 0);
+      let expMonth = 24;
+
+      if (/^\d+$/.test(m[4])) {
+        expMonth = Number(m[4]);
+      }
+
+      tenants.push({
+        name: m[1].trim(),
+        sf: Number.isFinite(sf) ? sf : 0,
+        currentRent: Number.isFinite(rent) ? rent : 0,
+        expMonth: Number.isFinite(expMonth) && expMonth > 0 ? expMonth : 24,
+        annualBump: 0.03,
+        downtimeMonths: 3,
+        recoveryPct: 0.85,
+        creditLossPct: 0.01,
+        mlaName: "MLA-1",
+      });
+      break;
+    }
   }
+
+  return tenants;
 }
 
 function extractFromText(text) {
@@ -668,9 +685,9 @@ function extractFromText(text) {
   const out = { tenants: [], capexLines: [] };
 
   out.purchasePrice = parseFirstNumber(lower, /purchase\s*price[^\d]{0,20}([\d,]+(?:\.\d+)?)/i);
-  out.grossSf = parseFirstNumber(lower, /(gross\s*(?:rentable\s*)?sf|square\s*footage)[^\d]{0,20}([\d,]+(?:\.\d+)?)/i, 1);
+  out.grossSf = parseFirstNumber(lower, /(?:gross\s*(?:rentable\s*)?sf|square\s*footage)[^\d]{0,20}([\d,]+(?:\.\d+)?)/i, 1);
   if (out.grossSf == null) {
-    const m = lower.match(/(gross\s*(?:rentable\s*)?sf|square\s*footage)[^\d]{0,20}([\d,]+(?:\.\d+)?)/i);
+    const m = lower.match(/(?:gross\s*(?:rentable\s*)?sf|square\s*footage)[^\d]{0,20}([\d,]+(?:\.\d+)?)/i);
     if (m) out.grossSf = Number(String(m[2]).replace(/,/g, ""));
   }
 
@@ -683,10 +700,10 @@ function extractFromText(text) {
   const opex = parseFirstNumber(lower, /opex\s*(?:ratio)?[^\d]{0,20}([\d.]+)\s*%?/i);
   if (opex != null) out.opexRatio = opex > 1 ? opex / 100 : opex;
 
-  const ltv = parseFirstNumber(lower, /(initial\s*)?ltv[^\d]{0,20}([\d.]+)\s*%?/i);
+  const ltv = parseFirstNumber(lower, /(?:initial\s*)?ltv[^\d]{0,20}([\d.]+)\s*%?/i);
   if (ltv != null) out.initialLtv = ltv > 1 ? ltv / 100 : ltv;
 
-  const reserves = parseFirstNumber(lower, /(capital\s*reserves?|reserves\s*monthly)[^\d]{0,20}([\d,]+(?:\.\d+)?)/i);
+  const reserves = parseFirstNumber(lower, /(?:capital\s*reserves?|reserves\s*monthly)[^\d]{0,20}([\d,]+(?:\.\d+)?)/i);
   if (reserves != null) out.reservesMonthly = reserves;
 
   // fallback from columns-like text lines
@@ -704,6 +721,8 @@ function extractFromText(text) {
       mlaName: "MLA-1",
     });
   }
+
+  out.tenants.push(...parseRentRollRowsFromText(text));
 
   return out;
 }
@@ -778,8 +797,10 @@ async function analyzeSourceMaterials() {
   for (const file of state.sourceFiles) {
     try {
       const ext = (file.name.split(".").pop() || "").toLowerCase();
-      if (!["txt", "csv", "json", "md"].includes(ext)) continue;
-      const text = await file.text();
+      if (!["txt", "csv", "json", "md", "pdf"].includes(ext)) continue;
+      const text = ext === "pdf"
+        ? extractPdfTextFromBytes(new Uint8Array(await file.arrayBuffer()))
+        : await file.text();
 
       if (ext === "json") {
         const data = JSON.parse(text);
@@ -804,6 +825,15 @@ async function analyzeSourceMaterials() {
       console.error("Failed to parse source", file.name, err);
     }
   }
+
+  // Deduplicate tenant rows by (name,sf,rent,exp)
+  const seen = new Set();
+  extracted.tenants = extracted.tenants.filter((t) => {
+    const key = `${(t.name || "").toLowerCase()}|${t.sf}|${t.currentRent}|${t.expMonth}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 
   prefillFromExtraction(extracted);
   status.textContent = `Analyzed ${state.sourceFiles.length} files. Prefilled ${extracted.tenants.length} tenant(s), ${extracted.capexLines.length} capex line(s), and available top-level assumptions.`;
