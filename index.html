@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Institutional Underwriting Platform</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>Institutional Real Estate Underwriting</h1>
+    <p>Monthly DCF • Annual rollups • Debt / Refi • MLA tranches • Excel-compatible export</p>
+  </header>
+
+  <main class="container">
+    <section class="card">
+      <h2>Source Materials</h2>
+      <input id="fileDrop" type="file" multiple />
+      <small>Drop OMs, rent rolls, comp lists, and supplemental files. Complete missing data below.</small>
+      <div id="fileList"></div>
+    </section>
+
+    <section class="grid">
+      <section class="card">
+        <h2>Main Inputs</h2>
+        <div class="inputs" id="mainInputs"></div>
+      </section>
+
+      <section class="card">
+        <h2>Leverage Inputs</h2>
+        <div class="inputs" id="debtInputs"></div>
+      </section>
+
+      <section class="card">
+        <h2>Refinance Inputs</h2>
+        <label><input type="checkbox" id="enableRefi" /> Enable refinance</label>
+        <div class="inputs" id="refiInputs"></div>
+      </section>
+    </section>
+
+    <section class="card">
+      <h2>Market Leasing Assumption (MLA) Tranches</h2>
+      <button id="addMla">+ Add MLA Tranche</button>
+      <div id="mlaContainer"></div>
+    </section>
+
+    <section class="card">
+      <h2>Rent Roll / Tenant Mapping</h2>
+      <button id="addTenant">+ Add Tenant</button>
+      <div id="tenantContainer"></div>
+    </section>
+
+    <section class="card">
+      <h2>Capital Expenditures & Reserves</h2>
+      <label>General Capital Reserves ($/month) <input id="reservesMonthly" type="number" value="15000" /></label>
+      <textarea id="capexSchedule" rows="5">6:250000
+18:500000
+30:750000</textarea>
+      <small>Format: month:amount (one per line)</small>
+    </section>
+
+    <section class="actions card">
+      <button id="runModel">Run Underwriting Model</button>
+      <button id="exportExcel">Export Excel-Compatible Workbook</button>
+      <button id="exportJson">Export Assumptions JSON</button>
+      <button id="exportReport">Generate Multi-Page Summary</button>
+    </section>
+
+    <section class="card">
+      <h2>Results</h2>
+      <pre id="summary"></pre>
+      <div id="metrics"></div>
+      <div id="annual"></div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
