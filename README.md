@@ -11,7 +11,7 @@ A clean, institutional front-end prototype for office/retail/industrial underwri
 - Multi-section summary report generation
 - Excel-compatible workbook export (SpreadsheetML XML that opens in Excel and remains editable)
 
-## Run the app
+## 1) Run the UI locally
 
 ```bash
 python -m http.server 8000
@@ -19,10 +19,24 @@ python -m http.server 8000
 
 Then open: `http://localhost:8000`
 
-## Generate a summary from assumptions JSON
+## 2) Run the underwriting model locally (CLI)
+
+```bash
+python underwriting_model.py --input examples/sample_assumptions.json --output artifacts/model_output.json
+```
+
+This produces a JSON payload with monthly cash flows, annual rollups, and return metrics.
+
+## 3) Generate the underwriting memo from assumptions
 
 ```bash
 python generate_report.py --input examples/sample_assumptions.json --output artifacts/investment_summary.md
+```
+
+## 4) Run local tests
+
+```bash
+python -m unittest discover -s tests -p "test_*.py" -v
 ```
 
 ## Files
@@ -30,5 +44,7 @@ python generate_report.py --input examples/sample_assumptions.json --output arti
 - `index.html`: institutional UX layout
 - `styles.css`: visual system
 - `app.js`: underwriting engine + exports + report generation in-browser
+- `underwriting_model.py`: CLI underwriting engine for local testing/automation
 - `generate_report.py`: CLI summary generator
 - `examples/sample_assumptions.json`: sample assumptions payload
+- `tests/test_local.py`: local smoke/integration tests
