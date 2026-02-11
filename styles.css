@@ -120,3 +120,9 @@ pre {
   overflow: auto;
   max-height: 320px;
 }
+
+
+.step-dialog { border: 1px solid var(--line); border-radius: 10px; padding: 1rem; width: min(860px, 95vw); }
+.step-dialog::backdrop { background: rgba(5, 13, 30, 0.45); }
+#tenantTable.table { min-width: 900px; }
+#stepTable.table { min-width: 650px; }

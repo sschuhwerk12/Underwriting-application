@@ -10,7 +10,7 @@
   <header class="topbar">
     <div>
       <h1>Institutional Real Estate Underwriting</h1>
-      <p>Monthly DCF • Annual rollups • Flexible tenant assumptions • Excel exports</p>
+      <p>Monthly DCF • Annual rollups • Rent-roll ingest from OMs • Excel exports</p>
     </div>
     <div class="topbar-actions">
       <button id="runModel" class="btn btn-primary">Run Model</button>
@@ -21,14 +21,14 @@
 
   <main class="container">
     <section class="panel">
-      <h2>1) Source Materials</h2>
+      <h2>1) Source Materials (Rent Roll Ingestion)</h2>
       <div class="file-row">
         <input id="fileDrop" type="file" multiple />
-        <button id="analyzeSources" class="btn btn-primary">Analyze & Prefill Assumptions</button>
+        <button id="analyzeSources" class="btn btn-primary">Analyze PDFs for Rent Roll</button>
         <button id="exportJson" class="btn">Export Assumptions JSON</button>
         <button id="exportReport" class="btn">Export Markdown Summary</button>
       </div>
-      <p class="muted">Drop OMs, rent rolls, comp lists, etc. and complete or override missing assumptions below.</p>
+      <p class="muted">The analyzer only extracts rent-roll rows (SF, commencement, expiration, current rent) and pre-populates the rent-roll section.</p>
       <div id="fileList" class="chip-list"></div>
       <div id="sourceStatus" class="muted"></div>
     </section>
@@ -61,37 +61,26 @@
 
     <section class="panel">
       <div class="section-header">
-        <h2>6) Tenant Rent Roll & Assumptions</h2>
-        <button id="addTenant" class="btn">+ Add Tenant</button>
+        <h2>6) Tenant Rent Roll</h2>
+        <button id="addTenant" class="btn">+ Add Tenant / Suite</button>
       </div>
       <div class="table-wrap">
         <table class="table" id="tenantTable">
           <thead>
             <tr>
-              <th>Tenant</th>
+              <th>Tenant / Suite</th>
               <th>SF</th>
-              <th>Suite</th>
-              <th>Start Mo</th>
-              <th>End Mo</th>
-              <th>Current Rent $/SF/Mo</th>
-              <th>Annual Rent Bump %</th>
-              <th>Vacancy Downtime (mo)</th>
-              <th>Recovery %</th>
-              <th>Credit Loss %</th>
-              <th>MLA Tranche</th>
-              <th>Renewal % Override</th>
-              <th>Free Rent New (mo) Override</th>
-              <th>Free Rent Ren. (mo) Override</th>
-              <th>TI New $/SF Override</th>
-              <th>TI Ren. $/SF Override</th>
-              <th>LC New % Override</th>
-              <th>LC Ren. % Override</th>
+              <th>Lease Commencement Date</th>
+              <th>Lease Expiration Date</th>
+              <th>Current Rent ($/SF/Mo)</th>
+              <th>Annual Rent Steps</th>
               <th></th>
             </tr>
           </thead>
           <tbody id="tenantContainer"></tbody>
         </table>
       </div>
+      <p class="muted">For vacant suites, set commencement date after acquisition date. Model will apply no rent until commencement and vacancy opex slippage.</p>
     </section>
 
     <section class="panel">
@@ -130,6 +119,18 @@
       <div id="annual"></div>
     </section>
   </main>
+
+  <dialog id="rentStepDialog" class="step-dialog">
+    <h3 id="stepDialogTitle">Rent Steps</h3>
+    <table class="table" id="stepTable">
+      <thead><tr><th>Effective Date</th><th>Rent ($/SF/Mo)</th><th></th></tr></thead>
+      <tbody id="stepTableBody"></tbody>
+    </table>
+    <div class="file-row" style="margin-top:.5rem;">
+      <button id="addStepRow" class="btn">+ Add Annual Rent Step</button>
+      <button id="closeStepDialog" class="btn btn-primary">Save & Close</button>
+    </div>
+  </dialog>
 
   <script src="app.js"></script>
 </body>

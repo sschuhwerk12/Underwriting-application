@@ -22,9 +22,10 @@ Then open: `http://localhost:8000`
 
 ## Source material ingestion (multi-file prefill)
 
-- Upload multiple files at once in **Source Materials** (currently supports `.txt`, `.md`, `.csv`, and `.json`).
-- Click **Analyze & Prefill Assumptions** to parse all uploaded files and auto-populate what can be inferred (top-level assumptions, rent-roll rows, and capex lines when present).
-- Review and override any inferred assumptions before running the model.
+- Upload multiple files at once in **Source Materials** (supports `.pdf`, `.txt`, `.md`, `.csv`).
+- Click **Analyze PDFs for Rent Roll** to parse rent-roll rows only and auto-populate tenant SF, commencement/expiration dates, and current rent.
+- Rent-step schedules are entered per tenant using the **Rent Steps** pop-out editor.
+- Suites with future commencement dates are treated as vacant before commencement (no rent + vacancy opex slippage).
 
 ## 2) Run the underwriting model locally (CLI)
 
