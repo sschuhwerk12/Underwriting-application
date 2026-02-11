@@ -503,38 +503,49 @@ function runModel(a) {
   const mlaMap = getMlaMap(a.mlas);
 
   for (let m = 1; m <= a.holdMonths; m++) {
-    let grossRent = 0;
-    let leasingCosts = 0;
+    let potentialBaseRent = 0;
+    let absorptionTurnoverVacancy = 0;
+    let freeRent = 0;
+    let scheduledBaseRent = 0;
+    let tiCosts = 0;
+    let lcCosts = 0;
     const activeTenants = [];
 
     for (const t of a.tenants) {
       const mla = mlaMap[t.mlaName] || a.mlas[0];
-      const preCommencement = m < t.commencementMonth;
       const inCurrentLease = m >= t.commencementMonth && m <= t.expMonth;
+      const baseRentPsf = rentForMonth(a, t, m);
+      const potentialForTenant = baseRentPsf * t.sf;
 
-      if (preCommencement) {
-        // vacant, no rent
+      if (m < t.commencementMonth) {
+        potentialBaseRent += potentialForTenant;
+        absorptionTurnoverVacancy += potentialForTenant;
       } else if (inCurrentLease) {
-        const rentPsf = rentForMonth(a, t, m);
-        grossRent += rentPsf * t.sf;
+        potentialBaseRent += potentialForTenant;
+        scheduledBaseRent += potentialForTenant;
         activeTenants.push(t);
       } else if (mla) {
         const post = m - t.expMonth;
         const renewal = mla.renewalProbability >= 0.5;
         const downtime = mla.downtimeMonths || 0;
         const free = renewal ? mla.freeRentRenewal : mla.freeRentNew;
+        const marketRent = marketRentAtMonth(a, mla.marketRent, m) * t.sf;
 
-        if (post > downtime + free) {
-          const mr = marketRentAtMonth(a, mla.marketRent, m);
-          grossRent += mr * t.sf;
+        potentialBaseRent += marketRent;
+        if (post <= downtime) {
+          absorptionTurnoverVacancy += marketRent;
+        } else if (post <= downtime + free) {
+          freeRent += marketRent;
+        } else {
+          scheduledBaseRent += marketRent;
           activeTenants.push(t);
         }
 
         if (post === 1) {
           const ti = renewal ? mla.tiRenewal : mla.tiNew;
           const lc = renewal ? mla.lcRenewal : mla.lcNew;
-          leasingCosts += t.sf * ti;
-          leasingCosts += t.sf * mla.marketRent * mla.leaseTerm * lc;
+          tiCosts += t.sf * ti;
+          lcCosts += t.sf * mla.marketRent * mla.leaseTerm * lc;
         }
       }
     }
@@ -543,12 +554,30 @@ function runModel(a) {
     const { opexExpense, reimbursements } = opexMonthlyAndReimbursement(a, activeTenants, activeSf, a.grossSf);
     const netOpex = opexExpense - reimbursements;
 
-    const noi = grossRent - netOpex;
     const capex = a.capexSchedule[m] || 0;
     const reserves = a.reservesMonthly;
+    const leasingCosts = tiCosts + lcCosts;
+    const noi = scheduledBaseRent + reimbursements - opexExpense;
     const unlevered = noi - leasingCosts - capex - reserves;
 
-    monthly.push({ month: m, grossRent, opexExpense, opexReimbursements: reimbursements, netOpex, noi, leasingCosts, capex, reserves, unlevered });
+    monthly.push({
+      month: m,
+      potentialBaseRent,
+      absorptionTurnoverVacancy,
+      freeRent,
+      scheduledBaseRent,
+      expenseRecoveries: reimbursements,
+      opexExpense,
+      netOpex,
+      noi,
+      tiCosts,
+      lcCosts,
+      leasingCosts,
+      capex,
+      reserves,
+      totalCapitalExpenditures: capex + reserves,
+      unlevered,
+    });
   }
 
   const debt = a.debt || {};
@@ -600,6 +629,58 @@ function runModel(a) {
   };
 }
 
+function renderCashFlowStatement(result) {
+  const months = result.monthly.map((r) => r.month);
+  const opexLineNames = result.assumptions.opexLines.map((o) => o.name).filter(Boolean);
+
+  const lineDefs = [
+    { section: 'Rental Revenue' },
+    { label: 'Potential Base Rent', key: 'potentialBaseRent' },
+    { label: 'Absorption & Turnover Vacancy', key: 'absorptionTurnoverVacancy', sign: -1 },
+    { label: 'Free Rent', key: 'freeRent', sign: -1 },
+    { label: 'Scheduled Base Rent', key: 'scheduledBaseRent', subtotal: true },
+    { section: 'Other Tenant Revenue' },
+    { label: 'Expense Recoveries', key: 'expenseRecoveries' },
+    { section: 'Operating Expenses' },
+    ...opexLineNames.map((name) => ({ label: name, opexLineName: name, sign: -1 })),
+    { label: 'Total Operating Expenses (Net)', key: 'netOpex', sign: -1, subtotal: true },
+    { section: 'Leasing Costs' },
+    { label: 'Tenant Improvements', key: 'tiCosts', sign: -1 },
+    { label: 'Leasing Commissions', key: 'lcCosts', sign: -1 },
+    { section: 'Capital Expenditures' },
+    { label: 'Capital Reserves', key: 'reserves', sign: -1 },
+    { label: 'Capital Expenditures', key: 'capex', sign: -1 },
+    { label: 'Total Capital Expenditures', key: 'totalCapitalExpenditures', sign: -1, subtotal: true },
+    { section: 'Cash Flow' },
+    { label: 'NOI', key: 'noi', subtotal: true },
+    { label: 'Unlevered Cash Flow', key: 'unlevered', subtotal: true },
+    { label: 'Levered Cash Flow', key: 'levered', subtotal: true },
+  ];
+
+  const getLineValue = (row, def) => {
+    if (def.opexLineName) {
+      const line = result.assumptions.opexLines.find((o) => o.name === def.opexLineName);
+      if (!line) return 0;
+      const annual = line.amountType === '$/SF/Year' ? line.amount * result.assumptions.grossSf : line.amount;
+      const monthly = annual / 12;
+      return (def.sign || 1) * monthly;
+    }
+    return (def.sign || 1) * (row[def.key] || 0);
+  };
+
+  const rows = lineDefs.map((def) => {
+    if (def.section) {
+      return `<tr class="statement-section"><td>${def.section}</td><td colspan="${months.length}"></td></tr>`;
+    }
+    const cls = def.subtotal ? 'statement-subtotal' : '';
+    const values = result.monthly.map((r) => `<td>${moneyFmt.format(getLineValue(r, def))}</td>`).join('');
+    return `<tr class="${cls}"><td>${def.label}</td>${values}</tr>`;
+  }).join('');
+
+  const header = `<tr><th>Line Item</th>${months.map((m) => `<th>M${m}</th>`).join('')}</tr>`;
+  document.getElementById('cashFlowStatement').innerHTML = `<div class="statement-wrap"><table class="statement-table">${header}${rows}</table></div>`;
+}
+
 function renderCapexSummary() {
   let total = 0;
   let reimb = 0;
@@ -636,6 +717,7 @@ function render(result) {
 
   const annualRows = result.annual.map((r) => [r.year, moneyFmt.format(r.annualNoi), moneyFmt.format(r.annualUnlevered), moneyFmt.format(r.annualLevered)]);
   document.getElementById("annual").innerHTML = toHtmlTable(["Year", "Annual NOI", "Annual Unlevered CF", "Annual Levered CF"], annualRows);
+  renderCashFlowStatement(result);
 }
 
 function download(name, content, type = "text/plain") {

@@ -131,3 +131,10 @@ pre {
 @media (max-width: 1200px) { .growth-grid { grid-template-columns: repeat(2, 1fr); } }
 #tenantTable.table { min-width: 1200px; }
 #opexTable.table { min-width: 1100px; }
+
+.statement-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; margin-top: .5rem; }
+.statement-table { border-collapse: collapse; min-width: 1400px; width: 100%; }
+.statement-table th, .statement-table td { border-bottom: 1px solid var(--line); padding: 0.35rem 0.45rem; font-size: 0.76rem; text-align: right; white-space: nowrap; }
+.statement-table th:first-child, .statement-table td:first-child { text-align: left; position: sticky; left: 0; background: #f7faff; z-index: 2; }
+.statement-section { background: #0f1f3d; color: #fff; font-weight: 600; }
+.statement-subtotal { border-top: 2px solid #6f95d9; font-weight: 600; }
