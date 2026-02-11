@@ -23,9 +23,11 @@ Then open: `http://localhost:8000`
 ## Source material ingestion (multi-file prefill)
 
 - Upload multiple files at once in **Source Materials** (supports `.pdf`, `.txt`, `.md`, `.csv`).
-- Click **Analyze PDFs for Rent Roll** to parse rent-roll rows only and auto-populate tenant SF, commencement/expiration dates, and current rent.
-- Rent-step schedules are entered per tenant using the **Rent Steps** pop-out editor.
-- Suites with future commencement dates are treated as vacant before commencement (no rent + vacancy opex slippage).
+- Click **Analyze PDFs for Rent Roll** to parse rent-roll rows only and auto-populate tenant SF, lease commencement, lease expiration, and current rent.
+- Per tenant, choose rent format (`$/SF/Mo`, `$/SF/Year`, `$/Year`) and add annual rent steps with effective dates.
+- Apply an MLA tranche to individual tenants; MLA includes downtime, TI/LC, free rent, renewal assumptions.
+- Market rent growth is a dedicated global section (default 3% years 1-10).
+- Operating expenses are modeled in a dedicated section with amount type (`$/Year` or `$/SF/Year`) and reimbursable selection by tenant (default all reimburse).
 
 ## 2) Run the underwriting model locally (CLI)
 

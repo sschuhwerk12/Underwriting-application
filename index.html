@@ -28,7 +28,7 @@
         <button id="exportJson" class="btn">Export Assumptions JSON</button>
         <button id="exportReport" class="btn">Export Markdown Summary</button>
       </div>
-      <p class="muted">The analyzer only extracts rent-roll rows (SF, commencement, expiration, current rent) and pre-populates the rent-roll section.</p>
+      <p class="muted">Analyzer extracts rent-roll rows and prefills tenant lines.</p>
       <div id="fileList" class="chip-list"></div>
       <div id="sourceStatus" class="muted"></div>
     </section>
@@ -52,8 +52,14 @@
     </section>
 
     <section class="panel">
+      <h2>5) Market Rent Growth (Global)</h2>
+      <div id="growthInputs" class="growth-grid"></div>
+      <p class="muted">Base case defaults to 3% for Years 1-10.</p>
+    </section>
+
+    <section class="panel">
       <div class="section-header">
-        <h2>5) Market Leasing Assumption (MLA) Tranches</h2>
+        <h2>6) Market Leasing Assumption (MLA) Tranches</h2>
         <button id="addMla" class="btn">+ Add MLA Tranche</button>
       </div>
       <div id="mlaContainer"></div>
@@ -61,7 +67,7 @@
 
     <section class="panel">
       <div class="section-header">
-        <h2>6) Tenant Rent Roll</h2>
+        <h2>7) Tenant Rent Roll</h2>
         <button id="addTenant" class="btn">+ Add Tenant / Suite</button>
       </div>
       <div class="table-wrap">
@@ -70,9 +76,11 @@
             <tr>
               <th>Tenant / Suite</th>
               <th>SF</th>
-              <th>Lease Commencement Date</th>
-              <th>Lease Expiration Date</th>
-              <th>Current Rent ($/SF/Mo)</th>
+              <th>Lease Commencement</th>
+              <th>Lease Expiration</th>
+              <th>Current Rent</th>
+              <th>Rent Format</th>
+              <th>MLA Tranche</th>
               <th>Annual Rent Steps</th>
               <th></th>
             </tr>
@@ -80,12 +88,35 @@
           <tbody id="tenantContainer"></tbody>
         </table>
       </div>
-      <p class="muted">For vacant suites, set commencement date after acquisition date. Model will apply no rent until commencement and vacancy opex slippage.</p>
+      <p class="muted">Vacant suites are recognized when commencement is after acquisition date. Rent is zero before commencement.</p>
     </section>
 
     <section class="panel">
       <div class="section-header">
-        <h2>7) Capital Budget & Reserves</h2>
+        <h2>8) Operating Expenses</h2>
+        <button id="addOpex" class="btn">+ Add Opex Line</button>
+      </div>
+      <div class="table-wrap">
+        <table class="table" id="opexTable">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Amount</th>
+              <th>Amount Type</th>
+              <th>Reimbursable?</th>
+              <th>Reimbursing Tenants (comma-separated names; blank = all)</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="opexContainer"></tbody>
+        </table>
+      </div>
+      <p class="muted">Default is reimbursable by all tenants.</p>
+    </section>
+
+    <section class="panel">
+      <div class="section-header">
+        <h2>9) Capital Budget & Reserves</h2>
         <button id="addCapex" class="btn">+ Add Capex Line</button>
       </div>
       <div class="capex-grid">
@@ -112,7 +143,7 @@
     </section>
 
     <section class="panel">
-      <h2>8) Results</h2>
+      <h2>10) Results</h2>
       <div id="kpiBar" class="kpi-bar"></div>
       <pre id="summary"></pre>
       <div id="metrics"></div>
@@ -123,7 +154,7 @@
   <dialog id="rentStepDialog" class="step-dialog">
     <h3 id="stepDialogTitle">Rent Steps</h3>
     <table class="table" id="stepTable">
-      <thead><tr><th>Effective Date</th><th>Rent ($/SF/Mo)</th><th></th></tr></thead>
+      <thead><tr><th>Effective Date</th><th>Rent (value using selected format)</th><th></th></tr></thead>
       <tbody id="stepTableBody"></tbody>
     </table>
     <div class="file-row" style="margin-top:.5rem;">
