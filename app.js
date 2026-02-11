@@ -649,6 +649,8 @@ function runModel(a) {
 
   monthly.forEach((r) => {
     const isFinal = r.month === a.holdMonths;
+    r.grossSaleProceeds = isFinal ? terminal : 0;
+    r.saleClosingCosts = isFinal ? saleCost : 0;
     r.netSaleProceeds = isFinal ? netSale : 0;
     r.debtPayoff = isFinal ? debtPayoff : 0;
     r.unleveredCF = r.unlevered + r.netSaleProceeds;
@@ -691,14 +693,25 @@ function runModel(a) {
 }
 
 function renderCashFlowStatement(result) {
+  const purchasePrice = result.assumptions.purchasePrice;
+  const acquisitionClosingCosts = result.assumptions.closingCosts;
+  const totalInvestmentCosts = purchasePrice + acquisitionClosingCosts;
+  const initialDebtInflow = purchasePrice * (result.assumptions.debt?.initialLtv || 0);
+  const initialOrigFee = initialDebtInflow * (result.assumptions.debt?.originationFee || 0);
+  const netEquityOutflow = totalInvestmentCosts - initialDebtInflow + initialOrigFee;
+
   const monthSeries = [
     {
       month: 0,
       date: result.assumptions.acquisitionDate,
-      initialCapitalOutflow: result.assumptions.purchasePrice + result.assumptions.closingCosts,
-      initialDebtInflow: result.assumptions.purchasePrice * (result.assumptions.debt?.initialLtv || 0),
-      initialOrigFee: (result.assumptions.purchasePrice * (result.assumptions.debt?.initialLtv || 0)) * (result.assumptions.debt?.originationFee || 0),
-      netEquityOutflow: (result.assumptions.purchasePrice + result.assumptions.closingCosts) - (result.assumptions.purchasePrice * (result.assumptions.debt?.initialLtv || 0)) + ((result.assumptions.purchasePrice * (result.assumptions.debt?.initialLtv || 0)) * (result.assumptions.debt?.originationFee || 0)),
+      purchasePrice,
+      acquisitionClosingCosts,
+      totalInvestmentCosts,
+      initialDebtInflow,
+      initialOrigFee,
+      netEquityOutflow,
+      unleveredCF: -totalInvestmentCosts,
+      leveredCF: -netEquityOutflow,
     },
     ...result.monthly.map((r) => ({ ...r, date: addMonths(result.assumptions.acquisitionDate, r.month) })),
   ];
@@ -725,21 +738,25 @@ function renderCashFlowStatement(result) {
     { label: 'Capital Reserves', key: 'reserves', sign: -1 },
     { label: 'Capital Expenditures', key: 'capex', sign: -1 },
     { label: 'Total Capital Expenditures', key: 'totalCapitalExpenditures', sign: -1, subtotal: true },
-    { section: 'Debt Amortization Schedule' },
+    { section: 'INVESTMENT & SALE CASH FLOW' },
+    { label: 'Purchase Price', key: 'purchasePrice', sign: -1 },
+    { label: 'Acquisition Closing Costs', key: 'acquisitionClosingCosts', sign: -1 },
+    { label: 'Total Investment Costs', key: 'totalInvestmentCosts', sign: -1, subtotal: true },
+    { label: 'Gross Sale Proceeds', key: 'grossSaleProceeds' },
+    { label: 'Sale Closing Costs', key: 'saleClosingCosts', sign: -1 },
+    { label: 'Net Sale Proceeds', key: 'netSaleProceeds', subtotal: true },
+    { section: 'CONSOLIDATED CASH FLOW' },
+    { label: 'Unlevered Cash Flow', key: 'unleveredCF', subtotal: true },
+    { section: 'DEBT ASSUMPTIONS & AMORTIZATION' },
+    { label: 'Initial Debt Inflow', key: 'initialDebtInflow' },
+    { label: 'Origination Fee', key: 'initialOrigFee', sign: -1 },
+    { label: 'Net Equity Outflow', key: 'netEquityOutflow', sign: -1, subtotal: true },
     { label: 'Beginning Loan Balance', key: 'debtBeginningBalance' },
     { label: 'Interest Expense', key: 'interestExpense', sign: -1 },
     { label: 'Principal Amortization', key: 'principalAmortization', sign: -1 },
     { label: 'Debt Service', key: 'debtService', sign: -1, subtotal: true },
     { label: 'Debt Reimbursements', key: 'reimbursement' },
     { label: 'Ending Loan Balance', key: 'debtEndingBalance' },
-    { section: 'CONSOLIDATED CASH FLOW' },
-    { label: 'Unlevered Cash Flow', key: 'unleveredCF', subtotal: true },
-    { section: 'FREE & CLEAR CASH FLOW' },
-    { label: 'Initial Capital Outflow', key: 'initialCapitalOutflow', sign: -1 },
-    { label: 'Initial Debt Inflow', key: 'initialDebtInflow' },
-    { label: 'Origination Fee', key: 'initialOrigFee', sign: -1 },
-    { label: 'Net Equity Outflow', key: 'netEquityOutflow', sign: -1, subtotal: true },
-    { label: 'Net Sale Proceeds', key: 'netSaleProceeds' },
     { label: 'Debt Payoff at Sale', key: 'debtPayoff', sign: -1 },
     { section: 'LEVERAGED CASH FLOW' },
     { label: 'Levered Cash Flow', key: 'leveredCF', subtotal: true },
@@ -825,7 +842,7 @@ function exportExcel(result, summaryOnly = false) {
   const worksheets = [xmlWorksheet("InvestmentSummary", sRows)];
   if (!summaryOnly) {
     worksheets.push(xmlWorksheet("Assumptions", Object.entries(result.assumptions).map(([k, v]) => [k, typeof v === "object" ? JSON.stringify(v) : v])));
-    worksheets.push(xmlWorksheet("MonthlyCF", [["month", "date", "potentialBaseRent", "absorptionTurnoverVacancy", "freeRent", "scheduledBaseRent", "expenseRecoveries", "opexExpense", "netOpex", "noi", "tiCosts", "lcCosts", "leasingCosts", "capex", "reserves", "unlevered", "netSaleProceeds", "debtPayoff", "unleveredCF", "debtBeginningBalance", "interestExpense", "principalAmortization", "debtService", "reimbursement", "debtEndingBalance", "levered", "leveredCF"], ...result.monthly.map((r) => [r.month, addMonths(result.assumptions.acquisitionDate, r.month), r.potentialBaseRent, r.absorptionTurnoverVacancy, r.freeRent, r.scheduledBaseRent, r.expenseRecoveries, r.opexExpense, r.netOpex, r.noi, r.tiCosts, r.lcCosts, r.leasingCosts, r.capex, r.reserves, r.unlevered, r.netSaleProceeds, r.debtPayoff, r.unleveredCF, r.debtBeginningBalance, r.interestExpense, r.principalAmortization, r.debtService, r.reimbursement, r.debtEndingBalance, r.levered, r.leveredCF])]));
+    worksheets.push(xmlWorksheet("MonthlyCF", [["month", "date", "potentialBaseRent", "absorptionTurnoverVacancy", "freeRent", "scheduledBaseRent", "expenseRecoveries", "opexExpense", "netOpex", "noi", "tiCosts", "lcCosts", "leasingCosts", "capex", "reserves", "unlevered", "grossSaleProceeds", "saleClosingCosts", "netSaleProceeds", "debtPayoff", "unleveredCF", "debtBeginningBalance", "interestExpense", "principalAmortization", "debtService", "reimbursement", "debtEndingBalance", "levered", "leveredCF"], ...result.monthly.map((r) => [r.month, addMonths(result.assumptions.acquisitionDate, r.month), r.potentialBaseRent, r.absorptionTurnoverVacancy, r.freeRent, r.scheduledBaseRent, r.expenseRecoveries, r.opexExpense, r.netOpex, r.noi, r.tiCosts, r.lcCosts, r.leasingCosts, r.capex, r.reserves, r.unlevered, r.grossSaleProceeds, r.saleClosingCosts, r.netSaleProceeds, r.debtPayoff, r.unleveredCF, r.debtBeginningBalance, r.interestExpense, r.principalAmortization, r.debtService, r.reimbursement, r.debtEndingBalance, r.levered, r.leveredCF])]));
     worksheets.push(xmlWorksheet("RentRoll", [["name", "sf", "commencementDate", "expirationDate", "currentRentMonthlyPSF", "rentType", "mlaName", "rentSteps"], ...result.assumptions.tenants.map((t) => [t.name, t.sf, t.commencementDate, t.expirationDate, t.currentRent, t.rentType, t.mlaName, JSON.stringify(t.rentSteps || [])])]));
     worksheets.push(xmlWorksheet("OperatingExpenses", [["name", "amount", "amountType", "reimbursable", "reimbursingTenants"], ...result.assumptions.opexLines.map((x) => [x.name, x.amount, x.amountType, x.reimbursable, x.reimbursingTenants])]));
   }
