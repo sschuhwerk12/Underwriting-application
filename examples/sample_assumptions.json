@@ -1,0 +1,54 @@
+{
+  "acquisitionDate": "2026-01-01",
+  "saleDate": "2031-01-01",
+  "holdMonths": 60,
+  "grossSf": 100000,
+  "purchasePrice": 25000000,
+  "closingCosts": 750000,
+  "exitCapRate": 0.065,
+  "discountRate": 0.1,
+  "opexRatio": 0.35,
+  "reservesMonthly": 15000,
+  "capexSchedule": {
+    "6": 250000,
+    "18": 500000,
+    "30": 750000
+  },
+  "mlas": [
+    {
+      "name": "MLA-1",
+      "marketRent": 4,
+      "tiNew": 30,
+      "tiRenewal": 15,
+      "renewalProbability": 0.6,
+      "leaseTerm": 60,
+      "freeRentNew": 4,
+      "freeRentRenewal": 2,
+      "lcNew": 0.05,
+      "lcRenewal": 0.03,
+      "growth": [0.03, 0.03, 0.03, 0.03, 0.03, 0.025, 0.025, 0.02, 0.02, 0.02]
+    }
+  ],
+  "tenants": [
+    {
+      "name": "Anchor",
+      "sf": 40000,
+      "currentRent": 3.8,
+      "expMonth": 24,
+      "mlaName": "MLA-1"
+    }
+  ],
+  "debt": {
+    "initialLtv": 0.6,
+    "originationFee": 0.01,
+    "extensionFee": 0.005,
+    "futureTilcPct": 0.5,
+    "futureCapexPct": 0.5,
+    "fundingEndMonth": 36,
+    "spread": 0.025,
+    "indexRate": 0.045,
+    "rateIndex": "SOFR",
+    "fixedFloating": "Floating"
+  },
+  "refinance": null
+}
