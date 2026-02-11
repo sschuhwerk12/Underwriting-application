@@ -16,12 +16,11 @@ const pctFmt = new Intl.NumberFormat("en-US", { style: "percent", minimumFractio
 
 const mainConfig = [
   ["acquisitionDate", "Acquisition Date", "2026-01-01", "date"],
-  ["holdYears", "Hold Period (years)", 5, "number"],
+  ["holdYears", "Hold Period (years)", 10, "number"],
   ["grossSf", "Square Footage", 100000, "number"],
   ["purchasePrice", "Purchase Price ($)", 25000000, "currency"],
   ["closingCosts", "Closing Costs ($)", 750000, "currency"],
-  ["exitCapRate", "Exit Cap Rate", 0.065, "percent"],
-];
+  ];
 
 const debtConfig = [
   ["initialLtv", "Initial LTV", 0.60, "percent"],
@@ -31,8 +30,9 @@ const debtConfig = [
   ["futureCapexPct", "% Capex Reimbursed", 0.50, "percent"],
   ["fundingEndMonth", "Funding End Month", 36, "number"],
   ["spread", "Rate Spread", 0.025, "percent"],
-  ["indexRate", "Rate Index", 0.045, "percent"],
+  ["indexRate", "Fixed Rate", 0.065, "percent"],
   ["interestOnlyMonths", "Interest Only Period (months)", 12, "number"],
+  ["amortizationMonths", "Amortization Period (months)", 360, "number"],
 ];
 
 function parseFormatted(value, formatType) {
@@ -144,7 +144,7 @@ function initForm() {
   const debt = document.getElementById("debtInputs");
   debtConfig.forEach(([id, label, value, formatType]) => addLabeledInput(debt, id, label, value, formatType));
   const rateIndex = document.createElement("label");
-  rateIndex.innerHTML = `Rate Index<select id="rateIndex"><option>SOFR</option><option>5Y Treasury</option></select>`;
+  rateIndex.innerHTML = `Floating Index Source<select id="rateIndex"><option>SOFR</option><option>5Y Treasury</option></select>`;
   debt.appendChild(rateIndex);
   const fixedFloat = document.createElement("label");
   fixedFloat.innerHTML = `Fixed / Floating<select id="fixedFloating"><option>Floating</option><option>Fixed</option></select>`;
@@ -152,6 +152,10 @@ function initForm() {
 
   const refi = document.getElementById("refiInputs");
   debtConfig.forEach(([id, label, value, formatType]) => addLabeledInput(refi, `refi_${id}`, label, value, formatType));
+
+  const exit = document.getElementById("exitInputs");
+  addLabeledInput(exit, "exitCapRate", "Exit Cap Rate", 0.065, "percent");
+  addLabeledInput(exit, "saleCostPct", "Sale Cost (% of gross sale)", 0.01, "percent");
 
   initGrowthInputs();
   addMla();
@@ -400,6 +404,7 @@ function gatherAssumptions() {
     rateIndex: document.getElementById("rateIndex").value,
     fixedFloating: document.getElementById("fixedFloating").value,
     interestOnlyMonths: getVal("interestOnlyMonths"),
+    amortizationMonths: getVal("amortizationMonths"),
   };
 
   const refi = document.getElementById("enableRefi").checked
@@ -413,6 +418,7 @@ function gatherAssumptions() {
         spread: getVal("refi_spread"),
         indexRate: getVal("refi_indexRate"),
         interestOnlyMonths: getVal("refi_interestOnlyMonths"),
+        amortizationMonths: getVal("refi_amortizationMonths"),
       }
     : null;
 
@@ -424,6 +430,7 @@ function gatherAssumptions() {
     purchasePrice: getVal("purchasePrice"),
     closingCosts: getVal("closingCosts"),
     exitCapRate: getVal("exitCapRate"),
+    saleCostPct: getVal("saleCostPct"),
     reservesMonthly: getVal("reservesMonthly"),
     growthByYear: getGrowthArray(),
     mlas,
@@ -505,6 +512,12 @@ function opexMonthlyAndReimbursement(assumptions, activeTenants, activeSf, total
   }
 
   return { opexExpense, reimbursements };
+}
+
+function getFloatingBenchmarkRate(rateIndex) {
+  // Placeholder for SOFR API wiring; defaults conservatively when floating.
+  if (rateIndex === 'SOFR') return 0.045;
+  return 0.04;
 }
 
 function runModel(a) {
@@ -592,8 +605,12 @@ function runModel(a) {
 
   const debt = a.debt || {};
   const loan = a.purchasePrice * (debt.initialLtv || 0);
-  const rate = ((debt.spread || 0) + (debt.indexRate || 0)) / 12;
+  const annualRate = debt.fixedFloating === 'Floating'
+    ? ((debt.spread || 0) + getFloatingBenchmarkRate(debt.rateIndex || 'SOFR'))
+    : (debt.indexRate || 0);
+  const rate = annualRate / 12;
   const ioMonths = Math.max(0, Math.round(debt.interestOnlyMonths || 0));
+  const amortMonths = Math.max(1, Math.round(debt.amortizationMonths || 360));
   let balance = loan;
 
   monthly.forEach((r) => {
@@ -608,8 +625,9 @@ function runModel(a) {
 
     let principalAmortization = 0;
     if (r.month > ioMonths && balance > 0 && rate > 0) {
-      const remainingMonths = Math.max(1, a.holdMonths - r.month + 1);
-      const payment = balance * (rate / (1 - ((1 + rate) ** (-remainingMonths))));
+      const monthsIntoAmort = r.month - ioMonths;
+      const remAmort = Math.max(1, amortMonths - monthsIntoAmort + 1);
+      const payment = balance * (rate / (1 - ((1 + rate) ** (-remAmort))));
       principalAmortization = Math.max(0, Math.min(balance, payment - interestExpense));
       balance -= principalAmortization;
     }
@@ -625,11 +643,25 @@ function runModel(a) {
   });
 
   const terminal = (monthly[monthly.length - 1].noi * 12) / a.exitCapRate;
-  const netSale = terminal * 0.99;
-  const unlevSeries = [-(a.purchasePrice + a.closingCosts), ...monthly.map((r) => r.unlevered)];
-  unlevSeries[unlevSeries.length - 1] += netSale;
-  const levSeries = [-(a.purchasePrice + a.closingCosts - loan * (1 - (debt.originationFee || 0))), ...monthly.map((r) => r.levered)];
-  levSeries[levSeries.length - 1] += netSale - balance;
+  const saleCost = terminal * (a.saleCostPct || 0);
+  const netSale = terminal - saleCost;
+  const debtPayoff = balance;
+
+  monthly.forEach((r) => {
+    const isFinal = r.month === a.holdMonths;
+    r.netSaleProceeds = isFinal ? netSale : 0;
+    r.debtPayoff = isFinal ? debtPayoff : 0;
+    r.unleveredCF = r.unlevered + r.netSaleProceeds;
+    r.leveredCF = r.levered + r.netSaleProceeds - r.debtPayoff;
+  });
+
+  const initialOutflow = a.purchasePrice + a.closingCosts;
+  const initialDebtInflow = loan;
+  const initialOrigFee = loan * (debt.originationFee || 0);
+  const netEquityOutflow = initialOutflow - initialDebtInflow + initialOrigFee;
+
+  const unlevSeries = [-initialOutflow, ...monthly.map((r) => r.unleveredCF)];
+  const levSeries = [-netEquityOutflow, ...monthly.map((r) => r.leveredCF)];
 
   const annual = [];
   for (let y = 0; y < a.holdMonths / 12; y++) {
@@ -637,8 +669,8 @@ function runModel(a) {
     annual.push({
       year: y + 1,
       annualNoi: rows.reduce((s, r) => s + r.noi, 0),
-      annualUnlevered: rows.reduce((s, r) => s + r.unlevered, 0),
-      annualLevered: rows.reduce((s, r) => s + r.levered, 0),
+      annualUnlevered: rows.reduce((s, r) => s + r.unleveredCF, 0),
+      annualLevered: rows.reduce((s, r) => s + r.leveredCF, 0),
     });
   }
 
@@ -666,6 +698,7 @@ function renderCashFlowStatement(result) {
       initialCapitalOutflow: result.assumptions.purchasePrice + result.assumptions.closingCosts,
       initialDebtInflow: result.assumptions.purchasePrice * (result.assumptions.debt?.initialLtv || 0),
       initialOrigFee: (result.assumptions.purchasePrice * (result.assumptions.debt?.initialLtv || 0)) * (result.assumptions.debt?.originationFee || 0),
+      netEquityOutflow: (result.assumptions.purchasePrice + result.assumptions.closingCosts) - (result.assumptions.purchasePrice * (result.assumptions.debt?.initialLtv || 0)) + ((result.assumptions.purchasePrice * (result.assumptions.debt?.initialLtv || 0)) * (result.assumptions.debt?.originationFee || 0)),
     },
     ...result.monthly.map((r) => ({ ...r, date: addMonths(result.assumptions.acquisitionDate, r.month) })),
   ];
@@ -700,13 +733,16 @@ function renderCashFlowStatement(result) {
     { label: 'Debt Reimbursements', key: 'reimbursement' },
     { label: 'Ending Loan Balance', key: 'debtEndingBalance' },
     { section: 'CONSOLIDATED CASH FLOW' },
-    { label: 'Unlevered Cash Flow', key: 'unlevered', subtotal: true },
+    { label: 'Unlevered Cash Flow', key: 'unleveredCF', subtotal: true },
     { section: 'FREE & CLEAR CASH FLOW' },
     { label: 'Initial Capital Outflow', key: 'initialCapitalOutflow', sign: -1 },
     { label: 'Initial Debt Inflow', key: 'initialDebtInflow' },
     { label: 'Origination Fee', key: 'initialOrigFee', sign: -1 },
+    { label: 'Net Equity Outflow', key: 'netEquityOutflow', sign: -1, subtotal: true },
+    { label: 'Net Sale Proceeds', key: 'netSaleProceeds' },
+    { label: 'Debt Payoff at Sale', key: 'debtPayoff', sign: -1 },
     { section: 'LEVERAGED CASH FLOW' },
-    { label: 'Levered Cash Flow', key: 'levered', subtotal: true },
+    { label: 'Levered Cash Flow', key: 'leveredCF', subtotal: true },
   ];
 
   const getLineValue = (row, def) => {
@@ -789,7 +825,7 @@ function exportExcel(result, summaryOnly = false) {
   const worksheets = [xmlWorksheet("InvestmentSummary", sRows)];
   if (!summaryOnly) {
     worksheets.push(xmlWorksheet("Assumptions", Object.entries(result.assumptions).map(([k, v]) => [k, typeof v === "object" ? JSON.stringify(v) : v])));
-    worksheets.push(xmlWorksheet("MonthlyCF", [["month", "date", "potentialBaseRent", "absorptionTurnoverVacancy", "freeRent", "scheduledBaseRent", "expenseRecoveries", "opexExpense", "netOpex", "noi", "tiCosts", "lcCosts", "leasingCosts", "capex", "reserves", "unlevered", "debtBeginningBalance", "interestExpense", "principalAmortization", "debtService", "reimbursement", "debtEndingBalance", "levered"], ...result.monthly.map((r) => [r.month, addMonths(result.assumptions.acquisitionDate, r.month), r.potentialBaseRent, r.absorptionTurnoverVacancy, r.freeRent, r.scheduledBaseRent, r.expenseRecoveries, r.opexExpense, r.netOpex, r.noi, r.tiCosts, r.lcCosts, r.leasingCosts, r.capex, r.reserves, r.unlevered, r.debtBeginningBalance, r.interestExpense, r.principalAmortization, r.debtService, r.reimbursement, r.debtEndingBalance, r.levered])]));
+    worksheets.push(xmlWorksheet("MonthlyCF", [["month", "date", "potentialBaseRent", "absorptionTurnoverVacancy", "freeRent", "scheduledBaseRent", "expenseRecoveries", "opexExpense", "netOpex", "noi", "tiCosts", "lcCosts", "leasingCosts", "capex", "reserves", "unlevered", "netSaleProceeds", "debtPayoff", "unleveredCF", "debtBeginningBalance", "interestExpense", "principalAmortization", "debtService", "reimbursement", "debtEndingBalance", "levered", "leveredCF"], ...result.monthly.map((r) => [r.month, addMonths(result.assumptions.acquisitionDate, r.month), r.potentialBaseRent, r.absorptionTurnoverVacancy, r.freeRent, r.scheduledBaseRent, r.expenseRecoveries, r.opexExpense, r.netOpex, r.noi, r.tiCosts, r.lcCosts, r.leasingCosts, r.capex, r.reserves, r.unlevered, r.netSaleProceeds, r.debtPayoff, r.unleveredCF, r.debtBeginningBalance, r.interestExpense, r.principalAmortization, r.debtService, r.reimbursement, r.debtEndingBalance, r.levered, r.leveredCF])]));
     worksheets.push(xmlWorksheet("RentRoll", [["name", "sf", "commencementDate", "expirationDate", "currentRentMonthlyPSF", "rentType", "mlaName", "rentSteps"], ...result.assumptions.tenants.map((t) => [t.name, t.sf, t.commencementDate, t.expirationDate, t.currentRent, t.rentType, t.mlaName, JSON.stringify(t.rentSteps || [])])]));
     worksheets.push(xmlWorksheet("OperatingExpenses", [["name", "amount", "amountType", "reimbursable", "reimbursingTenants"], ...result.assumptions.opexLines.map((x) => [x.name, x.amount, x.amountType, x.reimbursable, x.reimbursingTenants])]));
   }

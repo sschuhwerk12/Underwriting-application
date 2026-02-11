@@ -52,14 +52,19 @@
     </section>
 
     <section class="panel">
-      <h2>5) Market Rent Growth (Global)</h2>
+      <h2>5) Exit Assumptions</h2>
+      <div id="exitInputs" class="form-grid" style="grid-template-columns: repeat(3, minmax(200px, 320px)); display:grid; gap:0.6rem;"></div>
+    </section>
+
+    <section class="panel">
+      <h2>6) Market Rent Growth (Global)</h2>
       <div id="growthInputs" class="growth-grid"></div>
       <p class="muted">Base case defaults to 3% for Years 1-10.</p>
     </section>
 
     <section class="panel">
       <div class="section-header">
-        <h2>6) Market Leasing Assumption (MLA) Tranches</h2>
+        <h2>7) Market Leasing Assumption (MLA) Tranches</h2>
         <button id="addMla" class="btn">+ Add MLA Tranche</button>
       </div>
       <div id="mlaContainer"></div>
@@ -67,7 +72,7 @@
 
     <section class="panel">
       <div class="section-header">
-        <h2>7) Tenant Rent Roll</h2>
+        <h2>8) Tenant Rent Roll</h2>
         <button id="addTenant" class="btn">+ Add Tenant / Suite</button>
       </div>
       <div class="table-wrap">
@@ -93,7 +98,7 @@
 
     <section class="panel">
       <div class="section-header">
-        <h2>8) Operating Expenses</h2>
+        <h2>9) Operating Expenses</h2>
         <button id="addOpex" class="btn">+ Add Opex Line</button>
       </div>
       <div class="table-wrap">
@@ -116,7 +121,7 @@
 
     <section class="panel">
       <div class="section-header">
-        <h2>9) Capital Budget & Reserves</h2>
+        <h2>10) Capital Budget & Reserves</h2>
         <button id="addCapex" class="btn">+ Add Capex Line</button>
       </div>
       <div class="capex-grid">
@@ -143,7 +148,7 @@
     </section>
 
     <section class="panel">
-      <h2>10) Results</h2>
+      <h2>11) Results</h2>
       <div id="kpiBar" class="kpi-bar"></div>
       <pre id="summary"></pre>
       <div id="metrics"></div>

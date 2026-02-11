@@ -26,6 +26,8 @@ Then open: `http://localhost:8000`
 - Click **Analyze PDFs for Rent Roll** to parse rent-roll rows only and auto-populate tenant SF, lease commencement, lease expiration, and current rent.
 - Per tenant, choose rent format (`$/SF/Mo`, `$/SF/Year`, `$/Year`) and add annual rent steps with effective dates.
 - Apply an MLA tranche to individual tenants; MLA includes downtime, TI/LC, free rent, renewal assumptions.
+- Leverage includes interest-only months and amortization months, with fixed rate or floating spread/benchmark behavior.
+- Exit assumptions are in a separate section with exit cap rate and sale cost %.
 - Market rent growth is a dedicated global section (default 3% years 1-10).
 - Operating expenses are modeled in a dedicated section with amount type (`$/Year` or `$/SF/Year`) and reimbursable selection by tenant (default all reimburse).
 
