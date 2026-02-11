@@ -32,6 +32,7 @@ const debtConfig = [
   ["fundingEndMonth", "Funding End Month", 36, "number"],
   ["spread", "Rate Spread", 0.025, "percent"],
   ["indexRate", "Rate Index", 0.045, "percent"],
+  ["interestOnlyMonths", "Interest Only Period (months)", 12, "number"],
 ];
 
 function parseFormatted(value, formatType) {
@@ -300,6 +301,13 @@ function monthDiff(acqDateStr, dateStr) {
   return (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth()) + 1;
 }
 
+function addMonths(dateStr, monthsToAdd) {
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return "";
+  d.setMonth(d.getMonth() + monthsToAdd);
+  return d.toISOString().slice(0, 10);
+}
+
 function normalizeMonthlyRent(rentValue, rentType, sf) {
   if (rentType === "$/SF/Mo") return rentValue;
   if (rentType === "$/SF/Year") return rentValue / 12;
@@ -391,6 +399,7 @@ function gatherAssumptions() {
     indexRate: getVal("indexRate"),
     rateIndex: document.getElementById("rateIndex").value,
     fixedFloating: document.getElementById("fixedFloating").value,
+    interestOnlyMonths: getVal("interestOnlyMonths"),
   };
 
   const refi = document.getElementById("enableRefi").checked
@@ -403,6 +412,7 @@ function gatherAssumptions() {
         fundingEndMonth: getVal("refi_fundingEndMonth"),
         spread: getVal("refi_spread"),
         indexRate: getVal("refi_indexRate"),
+        interestOnlyMonths: getVal("refi_interestOnlyMonths"),
       }
     : null;
 
@@ -583,13 +593,32 @@ function runModel(a) {
   const debt = a.debt || {};
   const loan = a.purchasePrice * (debt.initialLtv || 0);
   const rate = ((debt.spread || 0) + (debt.indexRate || 0)) / 12;
+  const ioMonths = Math.max(0, Math.round(debt.interestOnlyMonths || 0));
   let balance = loan;
+
   monthly.forEach((r) => {
-    const debtService = balance * rate;
+    const beginningBalance = balance;
+    const interestExpense = beginningBalance * rate;
+
     const reimbursement = r.month <= (debt.fundingEndMonth || 0)
       ? (debt.futureTilcPct || 0) * r.leasingCosts + (debt.futureCapexPct || 0) * r.capex
       : 0;
+
     balance += reimbursement;
+
+    let principalAmortization = 0;
+    if (r.month > ioMonths && balance > 0 && rate > 0) {
+      const remainingMonths = Math.max(1, a.holdMonths - r.month + 1);
+      const payment = balance * (rate / (1 - ((1 + rate) ** (-remainingMonths))));
+      principalAmortization = Math.max(0, Math.min(balance, payment - interestExpense));
+      balance -= principalAmortization;
+    }
+
+    const debtService = interestExpense + principalAmortization;
+    r.debtBeginningBalance = beginningBalance;
+    r.interestExpense = interestExpense;
+    r.principalAmortization = principalAmortization;
+    r.debtEndingBalance = balance;
     r.debtService = debtService;
     r.reimbursement = reimbursement;
     r.levered = r.unlevered - debtService + reimbursement;
@@ -630,9 +659,18 @@ function runModel(a) {
 }
 
 function renderCashFlowStatement(result) {
-  const months = result.monthly.map((r) => r.month);
-  const opexLineNames = result.assumptions.opexLines.map((o) => o.name).filter(Boolean);
+  const monthSeries = [
+    {
+      month: 0,
+      date: result.assumptions.acquisitionDate,
+      initialCapitalOutflow: result.assumptions.purchasePrice + result.assumptions.closingCosts,
+      initialDebtInflow: result.assumptions.purchasePrice * (result.assumptions.debt?.initialLtv || 0),
+      initialOrigFee: (result.assumptions.purchasePrice * (result.assumptions.debt?.initialLtv || 0)) * (result.assumptions.debt?.originationFee || 0),
+    },
+    ...result.monthly.map((r) => ({ ...r, date: addMonths(result.assumptions.acquisitionDate, r.month) })),
+  ];
 
+  const opexLineNames = result.assumptions.opexLines.map((o) => o.name).filter(Boolean);
   const lineDefs = [
     { section: 'Rental Revenue' },
     { label: 'Potential Base Rent', key: 'potentialBaseRent' },
@@ -641,9 +679,12 @@ function renderCashFlowStatement(result) {
     { label: 'Scheduled Base Rent', key: 'scheduledBaseRent', subtotal: true },
     { section: 'Other Tenant Revenue' },
     { label: 'Expense Recoveries', key: 'expenseRecoveries' },
+    { label: 'Total Other Tenant Revenue', key: 'expenseRecoveries', subtotal: true },
+    { section: 'Effective Gross Revenue' },
+    { label: 'Effective Gross Revenue', formula: (row) => (row.scheduledBaseRent || 0) + (row.expenseRecoveries || 0), subtotal: true },
     { section: 'Operating Expenses' },
     ...opexLineNames.map((name) => ({ label: name, opexLineName: name, sign: -1 })),
-    { label: 'Total Operating Expenses (Net)', key: 'netOpex', sign: -1, subtotal: true },
+    { label: 'NET OPERATING INCOME', key: 'noi', subtotal: true },
     { section: 'Leasing Costs' },
     { label: 'Tenant Improvements', key: 'tiCosts', sign: -1 },
     { label: 'Leasing Commissions', key: 'lcCosts', sign: -1 },
@@ -651,33 +692,43 @@ function renderCashFlowStatement(result) {
     { label: 'Capital Reserves', key: 'reserves', sign: -1 },
     { label: 'Capital Expenditures', key: 'capex', sign: -1 },
     { label: 'Total Capital Expenditures', key: 'totalCapitalExpenditures', sign: -1, subtotal: true },
-    { section: 'Cash Flow' },
-    { label: 'NOI', key: 'noi', subtotal: true },
+    { section: 'Debt Amortization Schedule' },
+    { label: 'Beginning Loan Balance', key: 'debtBeginningBalance' },
+    { label: 'Interest Expense', key: 'interestExpense', sign: -1 },
+    { label: 'Principal Amortization', key: 'principalAmortization', sign: -1 },
+    { label: 'Debt Service', key: 'debtService', sign: -1, subtotal: true },
+    { label: 'Debt Reimbursements', key: 'reimbursement' },
+    { label: 'Ending Loan Balance', key: 'debtEndingBalance' },
+    { section: 'CONSOLIDATED CASH FLOW' },
     { label: 'Unlevered Cash Flow', key: 'unlevered', subtotal: true },
+    { section: 'FREE & CLEAR CASH FLOW' },
+    { label: 'Initial Capital Outflow', key: 'initialCapitalOutflow', sign: -1 },
+    { label: 'Initial Debt Inflow', key: 'initialDebtInflow' },
+    { label: 'Origination Fee', key: 'initialOrigFee', sign: -1 },
+    { section: 'LEVERAGED CASH FLOW' },
     { label: 'Levered Cash Flow', key: 'levered', subtotal: true },
   ];
 
   const getLineValue = (row, def) => {
+    if (def.formula) return def.formula(row);
     if (def.opexLineName) {
+      if (row.month === 0) return 0;
       const line = result.assumptions.opexLines.find((o) => o.name === def.opexLineName);
       if (!line) return 0;
       const annual = line.amountType === '$/SF/Year' ? line.amount * result.assumptions.grossSf : line.amount;
-      const monthly = annual / 12;
-      return (def.sign || 1) * monthly;
+      return (def.sign || 1) * (annual / 12);
     }
     return (def.sign || 1) * (row[def.key] || 0);
   };
 
   const rows = lineDefs.map((def) => {
-    if (def.section) {
-      return `<tr class="statement-section"><td>${def.section}</td><td colspan="${months.length}"></td></tr>`;
-    }
+    if (def.section) return `<tr class="statement-section"><td>${def.section}</td><td colspan="${monthSeries.length}"></td></tr>`;
     const cls = def.subtotal ? 'statement-subtotal' : '';
-    const values = result.monthly.map((r) => `<td>${moneyFmt.format(getLineValue(r, def))}</td>`).join('');
-    return `<tr class="${cls}"><td>${def.label}</td>${values}</tr>`;
+    const vals = monthSeries.map((r) => `<td>${moneyFmt.format(getLineValue(r, def))}</td>`).join('');
+    return `<tr class="${cls}"><td>${def.label}</td>${vals}</tr>`;
   }).join('');
 
-  const header = `<tr><th>Line Item</th>${months.map((m) => `<th>M${m}</th>`).join('')}</tr>`;
+  const header = `<tr><th>Line Item</th>${monthSeries.map((r) => `<th>${r.month === 0 ? 'Acq ' : ''}${r.date}</th>`).join('')}</tr>`;
   document.getElementById('cashFlowStatement').innerHTML = `<div class="statement-wrap"><table class="statement-table">${header}${rows}</table></div>`;
 }
 
@@ -738,7 +789,7 @@ function exportExcel(result, summaryOnly = false) {
   const worksheets = [xmlWorksheet("InvestmentSummary", sRows)];
   if (!summaryOnly) {
     worksheets.push(xmlWorksheet("Assumptions", Object.entries(result.assumptions).map(([k, v]) => [k, typeof v === "object" ? JSON.stringify(v) : v])));
-    worksheets.push(xmlWorksheet("MonthlyCF", [["month", "grossRent", "opexExpense", "opexReimbursements", "netOpex", "noi", "leasingCosts", "capex", "reserves", "unlevered", "debtService", "reimbursement", "levered"], ...result.monthly.map((r) => [r.month, r.grossRent, r.opexExpense, r.opexReimbursements, r.netOpex, r.noi, r.leasingCosts, r.capex, r.reserves, r.unlevered, r.debtService, r.reimbursement, r.levered])]));
+    worksheets.push(xmlWorksheet("MonthlyCF", [["month", "date", "potentialBaseRent", "absorptionTurnoverVacancy", "freeRent", "scheduledBaseRent", "expenseRecoveries", "opexExpense", "netOpex", "noi", "tiCosts", "lcCosts", "leasingCosts", "capex", "reserves", "unlevered", "debtBeginningBalance", "interestExpense", "principalAmortization", "debtService", "reimbursement", "debtEndingBalance", "levered"], ...result.monthly.map((r) => [r.month, addMonths(result.assumptions.acquisitionDate, r.month), r.potentialBaseRent, r.absorptionTurnoverVacancy, r.freeRent, r.scheduledBaseRent, r.expenseRecoveries, r.opexExpense, r.netOpex, r.noi, r.tiCosts, r.lcCosts, r.leasingCosts, r.capex, r.reserves, r.unlevered, r.debtBeginningBalance, r.interestExpense, r.principalAmortization, r.debtService, r.reimbursement, r.debtEndingBalance, r.levered])]));
     worksheets.push(xmlWorksheet("RentRoll", [["name", "sf", "commencementDate", "expirationDate", "currentRentMonthlyPSF", "rentType", "mlaName", "rentSteps"], ...result.assumptions.tenants.map((t) => [t.name, t.sf, t.commencementDate, t.expirationDate, t.currentRent, t.rentType, t.mlaName, JSON.stringify(t.rentSteps || [])])]));
     worksheets.push(xmlWorksheet("OperatingExpenses", [["name", "amount", "amountType", "reimbursable", "reimbursingTenants"], ...result.assumptions.opexLines.map((x) => [x.name, x.amount, x.amountType, x.reimbursable, x.reimbursingTenants])]));
   }
