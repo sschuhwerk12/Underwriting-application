@@ -8,66 +8,121 @@
 </head>
 <body>
   <header class="topbar">
-    <h1>Institutional Real Estate Underwriting</h1>
-    <p>Monthly DCF • Annual rollups • Debt / Refi • MLA tranches • Excel-compatible export</p>
+    <div>
+      <h1>Institutional Real Estate Underwriting</h1>
+      <p>Monthly DCF • Annual rollups • Flexible tenant assumptions • Excel exports</p>
+    </div>
+    <div class="topbar-actions">
+      <button id="runModel" class="btn btn-primary">Run Model</button>
+      <button id="exportSummaryExcel" class="btn">Export Summary Excel</button>
+      <button id="exportModelExcel" class="btn">Export Full Model Excel</button>
+    </div>
   </header>
 
   <main class="container">
-    <section class="card">
-      <h2>Source Materials</h2>
-      <input id="fileDrop" type="file" multiple />
-      <small>Drop OMs, rent rolls, comp lists, and supplemental files. Complete missing data below.</small>
-      <div id="fileList"></div>
+    <section class="panel">
+      <h2>1) Source Materials</h2>
+      <div class="file-row">
+        <input id="fileDrop" type="file" multiple />
+        <button id="exportJson" class="btn">Export Assumptions JSON</button>
+        <button id="exportReport" class="btn">Export Markdown Summary</button>
+      </div>
+      <p class="muted">Drop OMs, rent rolls, comp lists, etc. and complete or override missing assumptions below.</p>
+      <div id="fileList" class="chip-list"></div>
     </section>
 
-    <section class="grid">
-      <section class="card">
-        <h2>Main Inputs</h2>
-        <div class="inputs" id="mainInputs"></div>
+    <section class="grid-3">
+      <section class="panel">
+        <h2>2) Main Inputs</h2>
+        <div id="mainInputs" class="form-grid"></div>
       </section>
 
-      <section class="card">
-        <h2>Leverage Inputs</h2>
-        <div class="inputs" id="debtInputs"></div>
+      <section class="panel">
+        <h2>3) Leverage Inputs</h2>
+        <div id="debtInputs" class="form-grid"></div>
       </section>
 
-      <section class="card">
-        <h2>Refinance Inputs</h2>
-        <label><input type="checkbox" id="enableRefi" /> Enable refinance</label>
-        <div class="inputs" id="refiInputs"></div>
+      <section class="panel">
+        <h2>4) Refinance Inputs</h2>
+        <label class="inline-label"><input type="checkbox" id="enableRefi" /> Enable refinance case</label>
+        <div id="refiInputs" class="form-grid"></div>
       </section>
     </section>
 
-    <section class="card">
-      <h2>Market Leasing Assumption (MLA) Tranches</h2>
-      <button id="addMla">+ Add MLA Tranche</button>
+    <section class="panel">
+      <div class="section-header">
+        <h2>5) Market Leasing Assumption (MLA) Tranches</h2>
+        <button id="addMla" class="btn">+ Add MLA Tranche</button>
+      </div>
       <div id="mlaContainer"></div>
     </section>
 
-    <section class="card">
-      <h2>Rent Roll / Tenant Mapping</h2>
-      <button id="addTenant">+ Add Tenant</button>
-      <div id="tenantContainer"></div>
+    <section class="panel">
+      <div class="section-header">
+        <h2>6) Tenant Rent Roll & Assumptions</h2>
+        <button id="addTenant" class="btn">+ Add Tenant</button>
+      </div>
+      <div class="table-wrap">
+        <table class="table" id="tenantTable">
+          <thead>
+            <tr>
+              <th>Tenant</th>
+              <th>SF</th>
+              <th>Suite</th>
+              <th>Start Mo</th>
+              <th>End Mo</th>
+              <th>Current Rent $/SF/Mo</th>
+              <th>Annual Rent Bump %</th>
+              <th>Vacancy Downtime (mo)</th>
+              <th>Recovery %</th>
+              <th>Credit Loss %</th>
+              <th>MLA Tranche</th>
+              <th>Renewal % Override</th>
+              <th>Free Rent New (mo) Override</th>
+              <th>Free Rent Ren. (mo) Override</th>
+              <th>TI New $/SF Override</th>
+              <th>TI Ren. $/SF Override</th>
+              <th>LC New % Override</th>
+              <th>LC Ren. % Override</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="tenantContainer"></tbody>
+        </table>
+      </div>
     </section>
 
-    <section class="card">
-      <h2>Capital Expenditures & Reserves</h2>
-      <label>General Capital Reserves ($/month) <input id="reservesMonthly" type="number" value="15000" /></label>
-      <textarea id="capexSchedule" rows="5">6:250000
-18:500000
-30:750000</textarea>
-      <small>Format: month:amount (one per line)</small>
+    <section class="panel">
+      <div class="section-header">
+        <h2>7) Capital Budget & Reserves</h2>
+        <button id="addCapex" class="btn">+ Add Capex Line</button>
+      </div>
+      <div class="capex-grid">
+        <label>General Capital Reserves ($/month)
+          <input id="reservesMonthly" data-format="currency" type="text" value="15,000" />
+        </label>
+      </div>
+      <div class="table-wrap">
+        <table class="table" id="capexTable">
+          <thead>
+            <tr>
+              <th>Month</th>
+              <th>Category</th>
+              <th>Amount ($)</th>
+              <th>Reimbursable by Lender</th>
+              <th>Notes</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="capexContainer"></tbody>
+        </table>
+      </div>
+      <div id="capexSummary" class="muted"></div>
     </section>
 
-    <section class="actions card">
-      <button id="runModel">Run Underwriting Model</button>
-      <button id="exportExcel">Export Excel-Compatible Workbook</button>
-      <button id="exportJson">Export Assumptions JSON</button>
-      <button id="exportReport">Generate Multi-Page Summary</button>
-    </section>
-
-    <section class="card">
-      <h2>Results</h2>
+    <section class="panel">
+      <h2>8) Results</h2>
+      <div id="kpiBar" class="kpi-bar"></div>
       <pre id="summary"></pre>
       <div id="metrics"></div>
       <div id="annual"></div>
