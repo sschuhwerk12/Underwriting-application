@@ -24,11 +24,13 @@
       <h2>1) Source Materials</h2>
       <div class="file-row">
         <input id="fileDrop" type="file" multiple />
+        <button id="analyzeSources" class="btn btn-primary">Analyze & Prefill Assumptions</button>
         <button id="exportJson" class="btn">Export Assumptions JSON</button>
         <button id="exportReport" class="btn">Export Markdown Summary</button>
       </div>
       <p class="muted">Drop OMs, rent rolls, comp lists, etc. and complete or override missing assumptions below.</p>
       <div id="fileList" class="chip-list"></div>
+      <div id="sourceStatus" class="muted"></div>
     </section>
 
     <section class="grid-3">

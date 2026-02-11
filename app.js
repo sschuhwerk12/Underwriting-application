@@ -3,6 +3,7 @@ const state = {
   tenantCount: 0,
   capexCount: 0,
   lastResult: null,
+  sourceFiles: [],
 };
 
 const moneyFmt = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
@@ -10,14 +11,14 @@ const numFmt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 const pctFmt = new Intl.NumberFormat("en-US", { style: "percent", minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const mainConfig = [
-  ["acquisitionDate", "Acquisition Date", "date", "2026-01-01", "text"],
-  ["holdYears", "Hold Period (years)", 5, "number", "number"],
-  ["grossSf", "Square Footage", 100000, "number", "number"],
-  ["purchasePrice", "Purchase Price ($)", 25000000, "currency", "currency"],
-  ["closingCosts", "Closing Costs ($)", 750000, "currency", "currency"],
-  ["exitCapRate", "Exit Cap Rate", 0.065, "percent", "percent"],
-  ["discountRate", "Discount Rate (annual)", 0.1, "percent", "percent"],
-  ["opexRatio", "Operating Expense Ratio", 0.35, "percent", "percent"],
+  ["acquisitionDate", "Acquisition Date", "2026-01-01", "date"],
+  ["holdYears", "Hold Period (years)", 5, "number"],
+  ["grossSf", "Square Footage", 100000, "number"],
+  ["purchasePrice", "Purchase Price ($)", 25000000, "currency"],
+  ["closingCosts", "Closing Costs ($)", 750000, "currency"],
+  ["exitCapRate", "Exit Cap Rate", 0.065, "percent"],
+  ["discountRate", "Discount Rate (annual)", 0.1, "percent"],
+  ["opexRatio", "Operating Expense Ratio", 0.35, "percent"],
 ];
 
 const debtConfig = [
@@ -46,6 +47,21 @@ function displayFormatted(rawValue, formatType) {
   return numFmt.format(n);
 }
 
+function bindFormattedInput(input) {
+  const f = input.dataset.format;
+  if (!f || f === "date" || f === "text") return;
+
+  input.addEventListener("focus", () => {
+    input.value = input.dataset.raw || "0";
+  });
+  input.addEventListener("blur", () => {
+    const raw = parseFormatted(input.value, f);
+    input.dataset.raw = String(raw);
+    input.value = displayFormatted(raw, f);
+    if (input.id.startsWith("capex_amount_") || input.id === "reservesMonthly") renderCapexSummary();
+  });
+}
+
 function createInput(id, value, formatType = "number") {
   const input = document.createElement("input");
   input.id = id;
@@ -53,18 +69,7 @@ function createInput(id, value, formatType = "number") {
   input.dataset.format = formatType;
   input.dataset.raw = String(value);
   input.value = displayFormatted(value, formatType);
-
-  if (formatType !== "date" && formatType !== "text") {
-    input.addEventListener("focus", () => {
-      input.value = input.dataset.raw || "0";
-    });
-    input.addEventListener("blur", () => {
-      const raw = parseFormatted(input.value, formatType);
-      input.dataset.raw = String(raw);
-      input.value = displayFormatted(raw, formatType);
-      if (id.startsWith("capex_amount_") || id === "reservesMonthly") renderCapexSummary();
-    });
-  }
+  bindFormattedInput(input);
   return input;
 }
 
@@ -74,6 +79,19 @@ function getVal(id) {
   const formatType = el.dataset.format || "number";
   if (formatType === "date" || formatType === "text") return el.value;
   return parseFormatted(el.dataset.raw ?? el.value, formatType);
+}
+
+function setVal(id, value) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const formatType = el.dataset.format || "text";
+  if (formatType === "date" || formatType === "text") {
+    el.value = String(value ?? "");
+  } else {
+    const n = Number(value || 0);
+    el.dataset.raw = String(n);
+    el.value = displayFormatted(n, formatType);
+  }
 }
 
 function addLabeledInput(parent, id, label, value, formatType = "number") {
@@ -149,17 +167,6 @@ function addMla() {
   card.querySelectorAll("input[data-format]").forEach(bindFormattedInput);
 }
 
-function bindFormattedInput(input) {
-  const f = input.dataset.format;
-  input.addEventListener("focus", () => { input.value = input.dataset.raw || "0"; });
-  input.addEventListener("blur", () => {
-    const raw = parseFormatted(input.value, f);
-    input.dataset.raw = String(raw);
-    input.value = displayFormatted(raw, f);
-    if (input.id.startsWith("capex_amount_")) renderCapexSummary();
-  });
-}
-
 function addTenant() {
   state.tenantCount += 1;
   const i = state.tenantCount;
@@ -227,7 +234,6 @@ function gatherAssumptions() {
       .map((x) => Number(x.trim()))
       .filter((x) => Number.isFinite(x));
     while (growth.length < 10) growth.push(growth[growth.length - 1] ?? 0.02);
-
     mlas.push({
       name: document.getElementById(`mla_name_${i}`).value.trim() || `MLA-${i}`,
       marketRent: getVal(`mla_rent_${i}`),
@@ -277,7 +283,6 @@ function gatherAssumptions() {
     const category = document.getElementById(`capex_category_${i}`).value;
     const reimbPct = getVal(`capex_reimb_${i}`);
     const notes = document.getElementById(`capex_note_${i}`).value;
-
     capexLines.push({ month, category, amount, reimbPct, notes });
     capexSchedule[month] = (capexSchedule[month] || 0) + amount;
   }
@@ -325,6 +330,7 @@ function gatherAssumptions() {
     tenants,
     debt,
     refinance: refi,
+    sourceMaterials: state.sourceFiles.map((f) => ({ name: f.name, type: f.type, size: f.size })),
   };
 }
 
@@ -344,7 +350,6 @@ function irr(series) {
     tries += 1;
   }
   if (fLow * fHigh > 0) return 0;
-
   for (let i = 0; i < 120; i++) {
     const mid = (low + high) / 2;
     const fMid = npv(series, mid);
@@ -363,26 +368,19 @@ function irr(series) {
 function runModel(a) {
   const monthly = [];
   const mlaMap = Object.fromEntries(a.mlas.map((m) => [m.name, m]));
-
   for (let m = 1; m <= a.holdMonths; m++) {
     let grossRent = 0;
     let leasingCosts = 0;
-
     for (const t of a.tenants) {
       const mla = mlaMap[t.mlaName];
       let rentPsf = t.currentRent * ((1 + (t.annualBump || 0)) ** Math.max(0, (m - (t.startMonth || 1)) / 12));
-
       if (mla && m > t.expMonth) {
         const post = m - t.expMonth;
         const renewP = t.renewalOverride > 0 ? t.renewalOverride : mla.renewalProbability;
         const renewal = renewP >= 0.5;
-
         const frNew = t.freeRentNewOverride > 0 ? t.freeRentNewOverride : mla.freeRentNew;
         const frRen = t.freeRentRenewalOverride > 0 ? t.freeRentRenewalOverride : mla.freeRentRenewal;
-
-        const downtime = t.downtimeMonths || 0;
-        const totalNoRent = downtime + (renewal ? frRen : frNew);
-
+        const totalNoRent = (t.downtimeMonths || 0) + (renewal ? frRen : frNew);
         if (post <= totalNoRent) {
           rentPsf = 0;
         } else {
@@ -391,30 +389,25 @@ function runModel(a) {
           for (let y = 1; y <= yIdx; y++) marketRent *= (1 + mla.growth[y]);
           rentPsf = marketRent;
         }
-
         if (post === 1) {
           const tiNew = t.tiNewOverride > 0 ? t.tiNewOverride : mla.tiNew;
           const tiRen = t.tiRenewalOverride > 0 ? t.tiRenewalOverride : mla.tiRenewal;
           const lcNew = t.lcNewOverride > 0 ? t.lcNewOverride : mla.lcNew;
           const lcRen = t.lcRenewalOverride > 0 ? t.lcRenewalOverride : mla.lcRenewal;
-
           leasingCosts += t.sf * (renewal ? tiRen : tiNew);
           leasingCosts += t.sf * rentPsf * mla.leaseTerm * (renewal ? lcRen : lcNew);
         }
       }
-
       let tenantIncome = rentPsf * t.sf;
       tenantIncome *= (t.recoveryPct || 0);
       tenantIncome *= (1 - (t.creditLossPct || 0));
       grossRent += tenantIncome;
     }
-
     const opex = grossRent * a.opexRatio;
     const noi = grossRent - opex;
     const capex = a.capexSchedule[m] || 0;
     const reserves = a.reservesMonthly;
     const unlevered = noi - leasingCosts - capex - reserves;
-
     monthly.push({ month: m, grossRent, opex, noi, leasingCosts, capex, reserves, unlevered });
   }
 
@@ -422,13 +415,11 @@ function runModel(a) {
   const loan = a.purchasePrice * (debt.initialLtv || 0);
   const rate = ((debt.spread || 0) + (debt.indexRate || 0)) / 12;
   let balance = loan;
-
   monthly.forEach((r) => {
     const debtService = balance * rate;
     const reimbursement = r.month <= (debt.fundingEndMonth || 0)
       ? (debt.futureTilcPct || 0) * r.leasingCosts + (debt.futureCapexPct || 0) * r.capex
       : 0;
-
     balance += reimbursement;
     r.debtService = debtService;
     r.reimbursement = reimbursement;
@@ -437,10 +428,8 @@ function runModel(a) {
 
   const terminal = (monthly[monthly.length - 1].noi * 12) / a.exitCapRate;
   const netSale = terminal * 0.99;
-
   const unlevSeries = [-(a.purchasePrice + a.closingCosts), ...monthly.map((r) => r.unlevered)];
   unlevSeries[unlevSeries.length - 1] += netSale;
-
   const levSeries = [-(a.purchasePrice + a.closingCosts - loan * (1 - (debt.originationFee || 0))), ...monthly.map((r) => r.levered)];
   levSeries[levSeries.length - 1] += netSale - balance;
 
@@ -563,7 +552,6 @@ function exportExcel(result, summaryOnly = false) {
   ];
 
   const worksheets = [xmlWorksheet("InvestmentSummary", sRows)];
-
   if (!summaryOnly) {
     worksheets.push(xmlWorksheet("Assumptions", Object.entries(result.assumptions).map(([k, v]) => [k, typeof v === "object" ? JSON.stringify(v) : v])));
     worksheets.push(xmlWorksheet("MonthlyCF", [["month", "grossRent", "opex", "noi", "leasingCosts", "capex", "reserves", "unlevered", "debtService", "reimbursement", "levered"], ...result.monthly.map((r) => [r.month, r.grossRent, r.opex, r.noi, r.leasingCosts, r.capex, r.reserves, r.unlevered, r.debtService, r.reimbursement, r.levered])]));
@@ -577,7 +565,6 @@ function exportExcel(result, summaryOnly = false) {
 <Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
 ${worksheets.join("\n")}
 </Workbook>`;
-
   download(summaryOnly ? "investment_summary.xls" : "underwriting_model_output.xls", xml, "application/vnd.ms-excel");
 }
 
@@ -613,9 +600,219 @@ function generateReportText(result) {
 `;
 }
 
+function parseFirstNumber(text, regex, divisor = 1) {
+  const m = text.match(regex);
+  if (!m) return null;
+  const value = Number(String(m[1]).replace(/[,]/g, ""));
+  return Number.isFinite(value) ? value / divisor : null;
+}
+
+function parseCsv(text) {
+  const rows = text.split(/\r?\n/).map((r) => r.trim()).filter(Boolean);
+  if (rows.length < 2) return [];
+  const headers = rows[0].split(",").map((h) => h.trim().toLowerCase());
+  return rows.slice(1).map((line) => {
+    const cells = line.split(",").map((c) => c.trim());
+    const obj = {};
+    headers.forEach((h, idx) => { obj[h] = cells[idx] || ""; });
+    return obj;
+  });
+}
+
+function clearExistingTenants() {
+  document.getElementById("tenantContainer").innerHTML = "";
+  state.tenantCount = 0;
+}
+
+function clearExistingCapex() {
+  document.getElementById("capexContainer").innerHTML = "";
+  state.capexCount = 0;
+}
+
+function prefillFromExtraction(extract) {
+  if (extract.purchasePrice != null) setVal("purchasePrice", extract.purchasePrice);
+  if (extract.grossSf != null) setVal("grossSf", extract.grossSf);
+  if (extract.exitCapRate != null) setVal("exitCapRate", extract.exitCapRate);
+  if (extract.opexRatio != null) setVal("opexRatio", extract.opexRatio);
+  if (extract.initialLtv != null) setVal("initialLtv", extract.initialLtv);
+  if (extract.reservesMonthly != null) setVal("reservesMonthly", extract.reservesMonthly);
+  if (extract.holdYears != null) setVal("holdYears", extract.holdYears);
+
+  if (extract.tenants.length) {
+    clearExistingTenants();
+    extract.tenants.forEach((t) => {
+      addTenant();
+      const idx = state.tenantCount;
+      setVal(`tenant_name_${idx}`, t.name || `Tenant ${idx}`);
+      setVal(`tenant_sf_${idx}`, t.sf || 0);
+      setVal(`tenant_suite_${idx}`, t.suite || `Suite ${100 + idx}`);
+      setVal(`tenant_start_${idx}`, t.startMonth || 1);
+      setVal(`tenant_exp_${idx}`, t.expMonth || 24);
+      setVal(`tenant_rent_${idx}`, t.currentRent || 0);
+      setVal(`tenant_bump_${idx}`, t.annualBump || 0.03);
+      setVal(`tenant_downtime_${idx}`, t.downtimeMonths || 3);
+      setVal(`tenant_recovery_${idx}`, t.recoveryPct || 0.85);
+      setVal(`tenant_credit_${idx}`, t.creditLossPct || 0.01);
+      setVal(`tenant_mla_${idx}`, t.mlaName || "MLA-1");
+    });
+  }
+
+  if (extract.capexLines.length) {
+    clearExistingCapex();
+    extract.capexLines.forEach((x) => addCapexLine(x.month || 1, x.category || "General", x.amount || 0, x.reimbPct ?? 0.5, x.notes || ""));
+  }
+}
+
+function extractFromText(text) {
+  const lower = text.toLowerCase();
+  const out = { tenants: [], capexLines: [] };
+
+  out.purchasePrice = parseFirstNumber(lower, /purchase\s*price[^\d]{0,20}([\d,]+(?:\.\d+)?)/i);
+  out.grossSf = parseFirstNumber(lower, /(gross\s*(?:rentable\s*)?sf|square\s*footage)[^\d]{0,20}([\d,]+(?:\.\d+)?)/i, 1);
+  if (out.grossSf == null) {
+    const m = lower.match(/(gross\s*(?:rentable\s*)?sf|square\s*footage)[^\d]{0,20}([\d,]+(?:\.\d+)?)/i);
+    if (m) out.grossSf = Number(String(m[2]).replace(/,/g, ""));
+  }
+
+  const exitCap = parseFirstNumber(lower, /exit\s*cap\s*(?:rate)?[^\d]{0,20}([\d.]+)\s*%?/i);
+  if (exitCap != null) out.exitCapRate = exitCap > 1 ? exitCap / 100 : exitCap;
+
+  const hold = parseFirstNumber(lower, /hold\s*(?:period)?[^\d]{0,20}([\d.]+)\s*(?:years?|yrs?)/i);
+  if (hold != null) out.holdYears = hold;
+
+  const opex = parseFirstNumber(lower, /opex\s*(?:ratio)?[^\d]{0,20}([\d.]+)\s*%?/i);
+  if (opex != null) out.opexRatio = opex > 1 ? opex / 100 : opex;
+
+  const ltv = parseFirstNumber(lower, /(initial\s*)?ltv[^\d]{0,20}([\d.]+)\s*%?/i);
+  if (ltv != null) out.initialLtv = ltv > 1 ? ltv / 100 : ltv;
+
+  const reserves = parseFirstNumber(lower, /(capital\s*reserves?|reserves\s*monthly)[^\d]{0,20}([\d,]+(?:\.\d+)?)/i);
+  if (reserves != null) out.reservesMonthly = reserves;
+
+  // fallback from columns-like text lines
+  const tenantLineRegex = /tenant\s*[:\-]\s*([^,\n]+).*?sf\s*[:\-]?\s*([\d,]+).*?rent\s*[:\-]?\s*([\d.]+).*?exp(?:iration)?\s*[:\-]?\s*(\d+)/gi;
+  for (const m of lower.matchAll(tenantLineRegex)) {
+    out.tenants.push({
+      name: m[1].trim(),
+      sf: Number(m[2].replace(/,/g, "")),
+      currentRent: Number(m[3]),
+      expMonth: Number(m[4]),
+      annualBump: 0.03,
+      downtimeMonths: 3,
+      recoveryPct: 0.85,
+      creditLossPct: 0.01,
+      mlaName: "MLA-1",
+    });
+  }
+
+  return out;
+}
+
+function extractFromCsvRecords(records, sourceName) {
+  const out = { tenants: [], capexLines: [] };
+  const name = sourceName.toLowerCase();
+
+  if (name.includes("rent") || records.some((r) => r.tenant || r.tenant_name || r.rent)) {
+    records.forEach((r, idx) => {
+      const tenantName = r.tenant || r.tenant_name || r.name;
+      const sf = Number((r.sf || r.square_feet || r.sqft || "").replace(/,/g, ""));
+      const rent = Number(r.current_rent || r.rent || r.rent_psf || 0);
+      const exp = Number(r.exp_month || r.lease_expiration_month || r.expiration_month || 24);
+      if (tenantName || sf || rent) {
+        out.tenants.push({
+          name: tenantName || `Tenant ${idx + 1}`,
+          sf: Number.isFinite(sf) ? sf : 0,
+          suite: r.suite || "",
+          startMonth: Number(r.start_month || 1),
+          expMonth: Number.isFinite(exp) ? exp : 24,
+          currentRent: Number.isFinite(rent) ? rent : 0,
+          annualBump: Number(r.annual_bump || 0.03),
+          downtimeMonths: Number(r.downtime_months || 3),
+          recoveryPct: Number(r.recovery_pct || 0.85),
+          creditLossPct: Number(r.credit_loss_pct || 0.01),
+          mlaName: r.mla_name || "MLA-1",
+        });
+      }
+    });
+  }
+
+  if (name.includes("capex") || records.some((r) => r.month && (r.amount || r.capex))) {
+    records.forEach((r) => {
+      const month = Number(r.month || r.capex_month || 0);
+      const amount = Number((r.amount || r.capex || "0").replace?.(/,/g, "") ?? r.amount ?? 0);
+      if (month > 0 && Number.isFinite(amount)) {
+        out.capexLines.push({
+          month,
+          category: r.category || "General",
+          amount,
+          reimbPct: Number(r.reimb_pct || 0.5),
+          notes: r.notes || "",
+        });
+      }
+    });
+  }
+
+  return out;
+}
+
+function mergeExtract(base, add) {
+  const merged = { ...base };
+  ["purchasePrice", "grossSf", "exitCapRate", "holdYears", "opexRatio", "initialLtv", "reservesMonthly"].forEach((k) => {
+    if (merged[k] == null && add[k] != null) merged[k] = add[k];
+  });
+  merged.tenants = [...(merged.tenants || []), ...(add.tenants || [])];
+  merged.capexLines = [...(merged.capexLines || []), ...(add.capexLines || [])];
+  return merged;
+}
+
+async function analyzeSourceMaterials() {
+  const status = document.getElementById("sourceStatus");
+  if (!state.sourceFiles.length) {
+    status.textContent = "No files selected. Upload source materials first.";
+    return;
+  }
+
+  status.textContent = `Reading ${state.sourceFiles.length} source file(s)...`;
+  let extracted = { tenants: [], capexLines: [] };
+
+  for (const file of state.sourceFiles) {
+    try {
+      const ext = (file.name.split(".").pop() || "").toLowerCase();
+      if (!["txt", "csv", "json", "md"].includes(ext)) continue;
+      const text = await file.text();
+
+      if (ext === "json") {
+        const data = JSON.parse(text);
+        const fromJson = {
+          purchasePrice: data.purchasePrice,
+          grossSf: data.grossSf,
+          exitCapRate: data.exitCapRate,
+          holdYears: data.holdYears,
+          opexRatio: data.opexRatio,
+          initialLtv: data.initialLtv ?? data?.debt?.initialLtv,
+          reservesMonthly: data.reservesMonthly,
+          tenants: data.tenants || [],
+          capexLines: data.capexLines || [],
+        };
+        extracted = mergeExtract(extracted, fromJson);
+      } else if (ext === "csv") {
+        extracted = mergeExtract(extracted, extractFromCsvRecords(parseCsv(text), file.name));
+      } else {
+        extracted = mergeExtract(extracted, extractFromText(text));
+      }
+    } catch (err) {
+      console.error("Failed to parse source", file.name, err);
+    }
+  }
+
+  prefillFromExtraction(extracted);
+  status.textContent = `Analyzed ${state.sourceFiles.length} files. Prefilled ${extracted.tenants.length} tenant(s), ${extracted.capexLines.length} capex line(s), and available top-level assumptions.`;
+}
+
 document.getElementById("addMla").onclick = addMla;
 document.getElementById("addTenant").onclick = addTenant;
 document.getElementById("addCapex").onclick = () => addCapexLine();
+document.getElementById("analyzeSources").onclick = analyzeSourceMaterials;
 
 document.getElementById("runModel").onclick = () => {
   const assumptions = gatherAssumptions();
@@ -629,8 +826,9 @@ document.getElementById("exportJson").onclick = () => download("assumptions.json
 document.getElementById("exportReport").onclick = () => state.lastResult && download("investment_summary.md", generateReportText(state.lastResult), "text/markdown");
 
 document.getElementById("fileDrop").addEventListener("change", (e) => {
-  const names = [...e.target.files].map((f) => f.name);
-  document.getElementById("fileList").innerHTML = names.map((n) => `<span class="chip">${n}</span>`).join("");
+  state.sourceFiles = [...e.target.files];
+  document.getElementById("fileList").innerHTML = state.sourceFiles.map((f) => `<span class="chip">${f.name}</span>`).join("");
+  document.getElementById("sourceStatus").textContent = `${state.sourceFiles.length} file(s) ready for analysis.`;
 });
 
 initForm();

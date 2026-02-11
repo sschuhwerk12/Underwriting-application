@@ -19,6 +19,13 @@ python -m http.server 8000
 
 Then open: `http://localhost:8000`
 
+
+## Source material ingestion (multi-file prefill)
+
+- Upload multiple files at once in **Source Materials** (currently supports `.txt`, `.md`, `.csv`, and `.json`).
+- Click **Analyze & Prefill Assumptions** to parse all uploaded files and auto-populate what can be inferred (top-level assumptions, rent-roll rows, and capex lines when present).
+- Review and override any inferred assumptions before running the model.
+
 ## 2) Run the underwriting model locally (CLI)
 
 ```bash
