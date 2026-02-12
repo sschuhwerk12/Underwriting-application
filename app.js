@@ -1121,6 +1121,47 @@ function applyPrefillFromText(rawText) {
   return updates;
 }
 
+
+function detectFileType(file) {
+  const ext = (file.name.split('.').pop() || '').toLowerCase();
+  const mime = (file.type || '').toLowerCase();
+  if (ext === 'json' || mime.includes('json')) return 'json';
+  if (ext === 'csv' || mime.includes('csv')) return 'csv';
+  if (ext === 'pdf' || mime.includes('pdf')) return 'pdf';
+  if (["png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff", "gif"].includes(ext) || mime.startsWith('image/')) return 'image';
+  if (["txt", "md", "yaml", "yml", "xml", "html", "htm", "rtf", "log", "ini"].includes(ext) || mime.startsWith('text/')) return 'text';
+  return 'other';
+}
+
+function parseCsvRows(text) {
+  const lines = String(text || '').split(/\r?\n/).filter(Boolean);
+  if (!lines.length) return { headers: [], rows: [] };
+  const headers = lines[0].split(',').map((x) => x.trim());
+  const rows = lines.slice(1).map((line) => line.split(',').map((x) => x.trim()));
+  return { headers, rows };
+}
+
+function applyPrefillFromObject(obj) {
+  if (!obj || typeof obj !== 'object') return { updates: 0, tenants: [] };
+  let updates = 0;
+  const numMap = [
+    ['purchasePrice', ['purchasePrice', 'purchase_price', 'price']],
+    ['closingCosts', ['closingCosts', 'closing_costs']],
+    ['grossSf', ['grossSf', 'gross_sf', 'building_sf', 'square_footage']],
+    ['holdYears', ['holdYears', 'hold_years']],
+  ];
+  numMap.forEach(([id, keys]) => {
+    const key = keys.find((k) => typeof obj[k] === 'number');
+    if (!key) return;
+    setVal(id, obj[key]);
+    updates += 1;
+  });
+  if (typeof obj.exitCapRate === 'number') { setVal('exitCapRate', obj.exitCapRate); updates += 1; }
+  if (typeof obj.exit_cap_rate === 'number') { setVal('exitCapRate', obj.exit_cap_rate); updates += 1; }
+  const tenants = Array.isArray(obj.tenants) ? obj.tenants : [];
+  return { updates, tenants };
+}
+
 async function extractTextFromFile(file) {
   const ext = (file.name.split(".").pop() || "").toLowerCase();
   const bytes = new Uint8Array(await file.arrayBuffer());
@@ -1149,52 +1190,82 @@ async function analyzeSourceMaterials() {
     status.textContent = "No files selected. Upload source materials first.";
     return;
   }
-  status.textContent = `Analyzing ${state.sourceFiles.length} file(s) for assumptions and rent-roll rows (including OCR for images)...`;
 
   const allTenants = [];
   let assumptionHits = 0;
+  let unsupported = 0;
   const failed = [];
 
-  for (const file of state.sourceFiles) {
-    try {
-      const text = await extractTextFromFile(file);
-      const hits = applyPrefillFromText(text) || [];
-      assumptionHits += hits.length;
+  status.textContent = `Analyzing 0 / ${state.sourceFiles.length} file(s)...`;
 
-      const ext = (file.name.split(".").pop() || "").toLowerCase();
-      if (ext === "csv") {
-        const rows = text.split(/\r?\n/).slice(1);
-        rows.forEach((r, i) => {
-          const cols = r.split(",").map((x) => x.trim());
-          if (cols.length < 5) return;
-          const hasSuiteCol = cols.length >= 6;
+  for (let idx = 0; idx < state.sourceFiles.length; idx++) {
+    const file = state.sourceFiles[idx];
+    const detectedType = detectFileType(file);
+    status.textContent = `Analyzing ${idx + 1} / ${state.sourceFiles.length}: ${file.name} (${detectedType})...`;
+
+    try {
+      if (detectedType === 'json') {
+        try {
+          const obj = JSON.parse(await file.text());
+          const { updates, tenants } = applyPrefillFromObject(obj);
+          assumptionHits += updates;
+          if (tenants.length) allTenants.push(...tenants);
+          const txtHits = applyPrefillFromText(JSON.stringify(obj)) || [];
+          assumptionHits += txtHits.length;
+        } catch (err) {
+          failed.push(`${file.name} (malformed JSON)`);
+          continue;
+        }
+      } else if (detectedType === 'csv') {
+        const text = await file.text();
+        const txtHits = applyPrefillFromText(text) || [];
+        assumptionHits += txtHits.length;
+
+        const { headers, rows } = parseCsvRows(text);
+        const h = headers.map((x) => x.toLowerCase());
+        const idxName = h.findIndex((x) => x.includes('tenant') || x.includes('name'));
+        const idxSuite = h.findIndex((x) => x.includes('suite'));
+        const idxSf = h.findIndex((x) => x === 'sf' || x.includes('square'));
+        const idxCommence = h.findIndex((x) => x.includes('commence'));
+        const idxExpire = h.findIndex((x) => x.includes('expir'));
+        const idxRent = h.findIndex((x) => x.includes('rent'));
+
+        rows.forEach((cols, i) => {
           const t = {
-            name: cols[0] || `Suite ${i + 1}`,
-            suite: hasSuiteCol ? (cols[1] || "") : "",
-            sf: Number((cols[hasSuiteCol ? 2 : 1] || "0").replace(/,/g, "")),
-            commencementDate: parseDateLike(cols[hasSuiteCol ? 3 : 2]) || "2026-01-01",
-            expirationDate: parseDateLike(cols[hasSuiteCol ? 4 : 3]) || "2028-01-01",
-            currentRent: Number(cols[hasSuiteCol ? 5 : 4] || 0),
+            name: cols[idxName >= 0 ? idxName : 0] || `Suite ${i + 1}`,
+            suite: idxSuite >= 0 ? (cols[idxSuite] || "") : "",
+            sf: Number((cols[idxSf >= 0 ? idxSf : 1] || "0").replace(/,/g, "")),
+            commencementDate: parseDateLike(cols[idxCommence >= 0 ? idxCommence : 2]) || "2026-01-01",
+            expirationDate: parseDateLike(cols[idxExpire >= 0 ? idxExpire : 3]) || "2028-01-01",
+            currentRent: Number(cols[idxRent >= 0 ? idxRent : 4] || 0),
             rentType: "$/SF/Mo",
             mlaName: "MLA-1",
             rentSteps: [],
           };
           if (t.sf > 0) allTenants.push(t);
         });
+      } else {
+        const text = await extractTextFromFile(file);
+        if (!String(text || '').trim()) {
+          unsupported += 1;
+          continue;
+        }
+        const hits = applyPrefillFromText(text) || [];
+        assumptionHits += hits.length;
+        allTenants.push(...parseRentRollFromText(text));
       }
-
-      allTenants.push(...parseRentRollFromText(text));
     } catch (err) {
       failed.push(file.name);
-      console.error("Failed to parse", file.name, err);
+      console.error('Failed to parse', file.name, err);
     }
   }
 
   if (allTenants.length) prefillRentRoll(allTenants);
   renderRentRollOutput(gatherAssumptions());
 
-  const failMsg = failed.length ? ` Failed files: ${failed.slice(0, 5).join(", ")}${failed.length > 5 ? "..." : ""}.` : "";
-  status.textContent = `Analyzed ${state.sourceFiles.length} file(s). Prefilled ${allTenants.length} rent-roll row(s) and ${assumptionHits} assumption field(s).${failMsg}`;
+  const failMsg = failed.length ? ` Failed: ${failed.slice(0, 5).join(', ')}${failed.length > 5 ? '...' : ''}.` : '';
+  const unsupportedMsg = unsupported ? ` ${unsupported} file(s) had no extractable structured text.` : '';
+  status.textContent = `Analyzed ${state.sourceFiles.length} file(s). Prefilled ${allTenants.length} rent-roll row(s) and ${assumptionHits} assumption field(s).${unsupportedMsg}${failMsg}`;
 }
 
 function openRentStepDialog(tenantIdx) {
@@ -1256,10 +1327,11 @@ document.getElementById("exportModelExcel").onclick = () => state.lastResult && 
 document.getElementById("exportJson").onclick = () => download("assumptions.json", JSON.stringify(gatherAssumptions(), null, 2), "application/json");
 document.getElementById("exportReport").onclick = () => state.lastResult && download("investment_summary.md", generateReportText(state.lastResult), "text/markdown");
 
-document.getElementById("fileDrop").addEventListener("change", (e) => {
+document.getElementById("fileDrop").addEventListener("change", async (e) => {
   state.sourceFiles = [...e.target.files];
   document.getElementById("fileList").innerHTML = state.sourceFiles.map((f) => `<span class="chip">${f.name}</span>`).join("");
-  document.getElementById("sourceStatus").textContent = `${state.sourceFiles.length} file(s) ready for rent-roll analysis.`;
+  document.getElementById("sourceStatus").textContent = `${state.sourceFiles.length} file(s) uploaded. Starting autofill...`;
+  if (state.sourceFiles.length) await analyzeSourceMaterials();
 });
 
 document.querySelectorAll(".tab-btn").forEach((btn) => {
