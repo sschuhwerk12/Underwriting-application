@@ -902,8 +902,11 @@ function renderRentRollOutput(assumptions) {
   if (!assumptions) return;
   const rows = assumptions.tenants || [];
   const totalSf = rows.reduce((sum, t) => sum + (t.sf || 0), 0);
-  const body = rows.map((t) => {
-    const ledRent = marketRentAtMonth(assumptions, (t.currentRent || 0), Math.max(1, t.expMonth || 1));
+  const mlaMap = getMlaMap(assumptions.mlas || []);
+
+  const baseBody = rows.map((t) => {
+    const ledMonth = Math.max(1, t.expMonth || monthDiff(assumptions.acquisitionDate, t.expirationDate));
+    const ledRent = marketRentAtMonth(assumptions, (t.currentRent || 0), ledMonth);
     const pctBldg = assumptions.grossSf > 0 ? ((t.sf || 0) / assumptions.grossSf) : 0;
     return `<tr>
       <td>${t.name || ''}</td>
@@ -922,11 +925,83 @@ function renderRentRollOutput(assumptions) {
   const waCurrent = rows.length ? rows.reduce((sum, t) => sum + ((t.sf || 0) * (t.currentRent || 0)), 0) / (totalSf || 1) : 0;
   const waLed = rows.length ? rows.reduce((sum, t) => sum + ((t.sf || 0) * marketRentAtMonth(assumptions, (t.currentRent || 0), Math.max(1, t.expMonth || 1))), 0) / (totalSf || 1) : 0;
 
-  document.getElementById('rentRollOutput').innerHTML = `<div class="rent-roll-preview"><table>
-    <thead><tr><th>Tenant</th><th>Suite</th><th>SF</th><th>% of Bldg</th><th>LED</th><th>Rem. Term</th><th>Rent PSF (Current)</th><th>Rent PSF @ LED</th><th>Gross/Net</th></tr></thead>
-    <tbody>${body}</tbody>
-    <tfoot><tr><td>TOTAL / W.A.</td><td></td><td>${numFmt.format(totalSf)}</td><td>${pctFmt.format(assumptions.grossSf > 0 ? (totalSf / assumptions.grossSf) : 0)}</td><td></td><td>${waTerm.toFixed(1)} yrs.</td><td>${formatCurrencySmart(waCurrent * 12)}</td><td>${formatCurrencySmart(waLed * 12)}</td><td></td></tr></tfoot>
-  </table></div>`;
+  const assumptionRows = rows.map((t) => {
+    const mla = mlaMap[t.mlaName] || assumptions.mlas?.[0] || {};
+    const renewProb = Math.max(0, Math.min(1, mla.renewalProbability || 0));
+    const newProb = 1 - renewProb;
+    const ledMonth = Math.max(1, t.expMonth || monthDiff(assumptions.acquisitionDate, t.expirationDate));
+    const ledRentAnnual = marketRentAtMonth(assumptions, (t.currentRent || 0), ledMonth) * 12;
+    const mlaRentAnnual = (mla.marketRent || 0) * 12;
+    const strikeRenew = marketRentAtMonth(assumptions, (mla.marketRent || 0), ledMonth) * 12;
+    const strikeNew = marketRentAtMonth(assumptions, (mla.marketRent || 0), ledMonth + Math.round(mla.downtimeMonths || 0)) * 12;
+    const strikeRent = (renewProb * strikeRenew) + (newProb * strikeNew);
+    const weightedDowntime = newProb * (mla.downtimeMonths || 0);
+    const lcdDate = addMonths(t.expirationDate || assumptions.acquisitionDate, Math.round(weightedDowntime));
+    const termYears = (mla.leaseTerm || 0) / 12;
+    const bumps = assumptions.growthByYear?.[Math.min(9, Math.floor((ledMonth - 1) / 12))] || 0;
+    const tiPsf = (renewProb * (mla.tiRenewal || 0)) + (newProb * (mla.tiNew || 0));
+    const incVsLed = ledRentAnnual > 0 ? ((strikeRent / ledRentAnnual) - 1) : 0;
+    return {
+      sf: t.sf || 0,
+      assumptionAtLed: renewProb >= 0.5 ? 'Renew' : 'New',
+      downtime: weightedDowntime,
+      lcd: lcdDate,
+      termYears,
+      mlaRentAnnual,
+      strikeRent,
+      incVsLed,
+      bumps,
+      tiPsf,
+    };
+  });
+
+  const wAvg = (key) => {
+    const denom = totalSf || 1;
+    return assumptionRows.reduce((sum, r) => sum + ((r.sf || 0) * (r[key] || 0)), 0) / denom;
+  };
+
+  const secondGenBody = assumptionRows.map((r) => `<tr>
+    <td>${r.assumptionAtLed}</td>
+    <td>${numFmt.format(r.downtime)} mos.</td>
+    <td>${formatDateMDY(r.lcd)}</td>
+    <td>${numFmt.format(r.termYears)} yrs.</td>
+    <td>${formatCurrencySmart(r.mlaRentAnnual)}</td>
+    <td>${formatCurrencySmart(r.strikeRent)}</td>
+    <td>${pctFmt.format(r.incVsLed)}</td>
+    <td>${pctFmt.format(r.bumps)}</td>
+    <td>${formatCurrencySmart(r.tiPsf)}</td>
+  </tr>`).join('');
+
+  const secondGenFooter = `<tr>
+    <td></td>
+    <td>${numFmt.format(wAvg('downtime'))} mos.</td>
+    <td></td>
+    <td>${numFmt.format(wAvg('termYears'))} yrs.</td>
+    <td>${formatCurrencySmart(wAvg('mlaRentAnnual'))}</td>
+    <td>${formatCurrencySmart(wAvg('strikeRent'))}</td>
+    <td>${pctFmt.format(wAvg('incVsLed'))}</td>
+    <td>${pctFmt.format(wAvg('bumps'))}</td>
+    <td>${formatCurrencySmart(wAvg('tiPsf'))}</td>
+  </tr>`;
+
+  document.getElementById('rentRollOutput').innerHTML = `
+    <div class="rent-roll-preview">
+      <table>
+        <thead><tr><th>Tenant</th><th>Suite</th><th>SF</th><th>% of Bldg</th><th>LED</th><th>Rem. Term</th><th>Rent PSF (Current)</th><th>Rent PSF @ LED</th><th>Gross/Net</th></tr></thead>
+        <tbody>${baseBody}</tbody>
+        <tfoot><tr><td>TOTAL / W.A.</td><td></td><td>${numFmt.format(totalSf)}</td><td>${pctFmt.format(assumptions.grossSf > 0 ? (totalSf / assumptions.grossSf) : 0)}</td><td></td><td>${waTerm.toFixed(1)} yrs.</td><td>${formatCurrencySmart(waCurrent * 12)}</td><td>${formatCurrencySmart(waLed * 12)}</td><td></td></tr></tfoot>
+      </table>
+    </div>
+    <div class="rent-roll-preview" style="margin-top:0.8rem;">
+      <table>
+        <thead>
+          <tr><th colspan="9"><em><u>2nd Gen Assumptions</u></em></th></tr>
+          <tr><th>Assumption @ LED</th><th>Downtime</th><th>LCD</th><th>Term</th><th>MLA Rent</th><th>Strike Rent</th><th>% Inc. vs. LED Rent</th><th>Bumps</th><th>TI PSF</th></tr>
+        </thead>
+        <tbody>${secondGenBody}</tbody>
+        <tfoot>${secondGenFooter}</tfoot>
+      </table>
+    </div>`;
 }
 
 function render(result) {
