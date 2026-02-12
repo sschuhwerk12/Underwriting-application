@@ -29,6 +29,20 @@ body { margin: 0; background: var(--bg); color: var(--ink); font-family: Inter, 
 .topbar-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 
 .container { max-width: 1600px; margin: 1rem auto 2rem; padding: 0 1rem; }
+
+.tabs { display:flex; gap:0.5rem; margin-bottom:1rem; flex-wrap:wrap; }
+.tab-btn { border:1px solid var(--line); background:#fff; color:var(--blue-900); border-radius:999px; padding:0.45rem 0.8rem; cursor:pointer; font-size:0.84rem; }
+.tab-btn.active { background:var(--blue-700); color:#fff; border-color:var(--blue-700); }
+.tab-panel { display:none; }
+.tab-panel.active { display:block; }
+
+.rent-roll-preview { border:1px solid var(--line); border-radius:10px; overflow:auto; }
+.rent-roll-preview table { width:100%; border-collapse:collapse; min-width:1000px; }
+.rent-roll-preview th { background:#062766; color:#fff; font-size:0.78rem; padding:0.5rem; border-bottom:1px solid #324f86; }
+.rent-roll-preview td { background:#f4f4f4; border-bottom:1px solid #c6c6c6; padding:0.45rem; font-size:0.8rem; text-align:center; }
+.rent-roll-preview td:first-child, .rent-roll-preview td:nth-child(2) { text-align:left; }
+.rent-roll-preview tfoot td { font-weight:700; background:#ececec; border-top:2px solid #222; }
+
 .panel {
   background: var(--panel);
   border: 1px solid var(--line);
