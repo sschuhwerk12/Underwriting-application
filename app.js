@@ -14,6 +14,12 @@ const moneyFmt = new Intl.NumberFormat("en-US", { style: "currency", currency: "
 const numFmt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 const pctFmt = new Intl.NumberFormat("en-US", { style: "percent", minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+function formatCurrencySmart(value) {
+  const n = Number(value || 0);
+  if (Math.abs(n) < 100) return n.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+}
+
 const mainConfig = [
   ["acquisitionDate", "Acquisition Date", "2026-01-01", "date"],
   ["holdYears", "Hold Period (years)", 5, "number"],
@@ -781,12 +787,13 @@ function renderStatementTable(result, containerId, periodSeries) {
   const rows = lineDefs.map((def) => {
     if (def.section) return `<tr class="statement-section"><td>${def.section}</td><td colspan="${periodSeries.length}"></td></tr>`;
     const cls = def.subtotal ? 'statement-subtotal' : '';
-    const vals = periodSeries.map((r) => `<td>${moneyFmt.format(getLineValue(r, def, r.periodsPerYear || 12))}</td>`).join('');
+    const vals = periodSeries.map((r) => `<td>${formatCurrencySmart(getLineValue(r, def, r.periodsPerYear || 12))}</td>`).join('');
     return `<tr class="${cls}"><td>${def.label}</td>${vals}</tr>`;
   }).join('');
 
-  const header = `<tr><th>Line Item</th>${periodSeries.map((r) => `<th>${r.label}</th>`).join('')}</tr>`;
-  document.getElementById(containerId).innerHTML = `<div class="statement-wrap"><table class="statement-table">${header}${rows}</table></div>`;
+  const monthRow = `<tr><th>Month</th>${periodSeries.map((r) => `<th>${r.periodIndex ?? r.period ?? "-"}</th>`).join('')}</tr>`;
+  const dateRow = `<tr><th>Date</th>${periodSeries.map((r) => `<th>${r.label}</th>`).join('')}</tr>`;
+  document.getElementById(containerId).innerHTML = `<div class="statement-wrap"><table class="statement-table">${monthRow}${dateRow}${rows}</table></div>`;
 }
 
 function renderCashFlowStatement(result) {
@@ -800,6 +807,7 @@ function renderCashFlowStatement(result) {
   const monthSeries = [
     {
       period: 0,
+      periodIndex: 0,
       label: formatMonthYear(endOfMonth(result.assumptions.acquisitionDate, 0)),
       periodsPerYear: 12,
       purchasePrice,
@@ -814,6 +822,7 @@ function renderCashFlowStatement(result) {
     ...result.monthly.map((r) => ({
       ...r,
       period: r.month,
+      periodIndex: r.month,
       label: formatMonthYear(endOfMonth(result.assumptions.acquisitionDate, r.month)),
       periodsPerYear: 12,
     })),
@@ -822,6 +831,7 @@ function renderCashFlowStatement(result) {
   const annualSeries = [
     {
       period: 0,
+      periodIndex: 0,
       label: formatMonthYear(endOfMonth(result.assumptions.acquisitionDate, 0)),
       periodsPerYear: 1,
       purchasePrice,
@@ -838,7 +848,7 @@ function renderCashFlowStatement(result) {
   const years = Math.floor(result.assumptions.holdMonths / 12);
   for (let y = 1; y <= years; y++) {
     const slice = result.monthly.slice((y - 1) * 12, y * 12);
-    const agg = { period: y, label: formatMonthYear(endOfMonth(result.assumptions.acquisitionDate, y * 12 - 1)), periodsPerYear: 1 };
+    const agg = { period: y, periodIndex: y * 12, label: formatMonthYear(endOfMonth(result.assumptions.acquisitionDate, y * 12 - 1)), periodsPerYear: 1 };
     const keys = [
       'potentialBaseRent', 'absorptionTurnoverVacancy', 'freeRent', 'scheduledBaseRent', 'expenseRecoveries', 'opexExpense', 'noi',
       'tiCosts', 'lcCosts', 'leasingCosts', 'capex', 'reserves', 'totalCapitalExpenditures', 'unlevered', 'grossSaleProceeds',
@@ -1034,20 +1044,89 @@ function prefillRentRoll(tenants) {
   tenants.forEach((t) => addTenant(t));
 }
 
+
+function parseValueFromText(text, patterns) {
+  for (const p of patterns) {
+    const m = text.match(p);
+    if (m && m[1]) {
+      const n = Number(m[1].replace(/,/g, ""));
+      if (Number.isFinite(n)) return n;
+    }
+  }
+  return null;
+}
+
+function applyPrefillFromText(rawText) {
+  const text = String(rawText || "");
+  const updates = [];
+  const mappings = [
+    ["purchasePrice", [/purchase\s*price[^\d]{0,20}([\d,]+(?:\.\d+)?)/i]],
+    ["closingCosts", [/(?:closing|acquisition)\s*costs?[^\d]{0,20}([\d,]+(?:\.\d+)?)/i]],
+    ["grossSf", [/(?:gross|building|rentable)\s*(?:sf|square\s*feet|square\s*footage)[^\d]{0,20}([\d,]+(?:\.\d+)?)/i]],
+    ["exitCapRate", [/exit\s*cap\s*rate[^\d]{0,20}([\d.]+)\s*%?/i]],
+    ["holdYears", [/hold\s*(?:period)?\s*(?:years|year|yr|yrs)[^\d]{0,20}([\d.]+)/i]],
+  ];
+
+  mappings.forEach(([id, patterns]) => {
+    const v = parseValueFromText(text, patterns);
+    if (v == null) return;
+    const normalized = id === "exitCapRate" && v > 1 ? v / 100 : v;
+    setVal(id, normalized);
+    updates.push(id);
+  });
+
+  let jsonObj = null;
+  try {
+    jsonObj = JSON.parse(text);
+  } catch (_) {
+    jsonObj = null;
+  }
+
+  if (jsonObj && typeof jsonObj === "object") {
+    if (Array.isArray(jsonObj.tenants) && jsonObj.tenants.length) prefillRentRoll(jsonObj.tenants);
+    if (typeof jsonObj.purchasePrice === "number") setVal("purchasePrice", jsonObj.purchasePrice);
+    if (typeof jsonObj.closingCosts === "number") setVal("closingCosts", jsonObj.closingCosts);
+    if (typeof jsonObj.grossSf === "number") setVal("grossSf", jsonObj.grossSf);
+    if (typeof jsonObj.exitCapRate === "number") setVal("exitCapRate", jsonObj.exitCapRate);
+  }
+
+  return updates;
+}
+
+async function extractTextFromFile(file) {
+  const ext = (file.name.split(".").pop() || "").toLowerCase();
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (ext === "pdf") return extractPdfTextFromBytes(bytes);
+
+  if (["txt", "md", "csv", "json", "yaml", "yml", "xml", "html", "htm", "rtf", "log", "ini"].includes(ext)) {
+    return await file.text();
+  }
+
+  const utf8 = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+  const latin = new TextDecoder("latin1").decode(bytes);
+  return `${utf8}
+${latin}`;
+}
+
 async function analyzeSourceMaterials() {
   const status = document.getElementById("sourceStatus");
   if (!state.sourceFiles.length) {
     status.textContent = "No files selected. Upload source materials first.";
     return;
   }
-  status.textContent = `Analyzing ${state.sourceFiles.length} file(s) for rent-roll rows...`;
+  status.textContent = `Analyzing ${state.sourceFiles.length} file(s) for assumptions and rent-roll rows...`;
 
   const allTenants = [];
+  let assumptionHits = 0;
+  const failed = [];
+
   for (const file of state.sourceFiles) {
-    const ext = (file.name.split(".").pop() || "").toLowerCase();
-    if (!["pdf", "txt", "md", "csv"].includes(ext)) continue;
     try {
-      const text = ext === "pdf" ? extractPdfTextFromBytes(new Uint8Array(await file.arrayBuffer())) : await file.text();
+      const text = await extractTextFromFile(file);
+      const hits = applyPrefillFromText(text) || [];
+      assumptionHits += hits.length;
+
+      const ext = (file.name.split(".").pop() || "").toLowerCase();
       if (ext === "csv") {
         const rows = text.split(/\r?\n/).slice(1);
         rows.forEach((r, i) => {
@@ -1067,16 +1146,20 @@ async function analyzeSourceMaterials() {
           };
           if (t.sf > 0) allTenants.push(t);
         });
-      } else {
-        allTenants.push(...parseRentRollFromText(text));
       }
+
+      allTenants.push(...parseRentRollFromText(text));
     } catch (err) {
+      failed.push(file.name);
       console.error("Failed to parse", file.name, err);
     }
   }
 
-  prefillRentRoll(allTenants);
-  status.textContent = `Analyzed ${state.sourceFiles.length} files. Prefilled ${allTenants.length} rent-roll row(s).`;
+  if (allTenants.length) prefillRentRoll(allTenants);
+  renderRentRollOutput(gatherAssumptions());
+
+  const failMsg = failed.length ? ` Failed files: ${failed.slice(0, 5).join(", ")}${failed.length > 5 ? "..." : ""}.` : "";
+  status.textContent = `Analyzed ${state.sourceFiles.length} file(s). Prefilled ${allTenants.length} rent-roll row(s) and ${assumptionHits} assumption field(s).${failMsg}`;
 }
 
 function openRentStepDialog(tenantIdx) {
