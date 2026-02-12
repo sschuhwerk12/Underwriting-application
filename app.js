@@ -188,20 +188,19 @@ function addMla() {
       <strong>MLA-${i}</strong>
       <button class="btn btn-danger" type="button" onclick="this.closest('.mla-card').remove(); refreshTenantMlaOptions();">Remove</button>
     </div>
-    <div class="horizontal-scroll">
-      <div class="mla-grid mla-grid-row">
-        <label>Name<input id="mla_name_${i}" type="text" value="MLA-${i}" onblur="refreshTenantMlaOptions()" /></label>
-        <label>Market Rent ($/SF/Mo)<input id="mla_rent_${i}" data-format="currency" data-raw="4" type="text" value="$4" /></label>
-        <label>TI New ($/SF)<input id="mla_ti_new_${i}" data-format="currency" data-raw="30" type="text" value="$30" /></label>
-        <label>TI Renewal ($/SF)<input id="mla_ti_ren_${i}" data-format="currency" data-raw="15" type="text" value="$15" /></label>
-        <label>Renewal Probability<input id="mla_renew_${i}" data-format="percent" data-raw="0.6" type="text" value="60.00%" /></label>
-        <label>Lease Term (months)<input id="mla_term_${i}" data-format="number" data-raw="60" type="text" value="60" /></label>
-        <label>Downtime (months)<input id="mla_downtime_${i}" data-format="number" data-raw="3" type="text" value="3" /></label>
-        <label>Free Rent New (mo)<input id="mla_fr_new_${i}" data-format="number" data-raw="4" type="text" value="4" /></label>
-        <label>Free Rent Renewal (mo)<input id="mla_fr_ren_${i}" data-format="number" data-raw="2" type="text" value="2" /></label>
-        <label>LC New<input id="mla_lc_new_${i}" data-format="percent" data-raw="0.05" type="text" value="5.00%" /></label>
-        <label>LC Renewal<input id="mla_lc_ren_${i}" data-format="percent" data-raw="0.03" type="text" value="3.00%" /></label>
-      </div>
+    <div class="mla-grid mla-grid-row">
+      <label>Name<input id="mla_name_${i}" type="text" value="MLA-${i}" onblur="refreshTenantMlaOptions()" /></label>
+      <label>Market Rent<input id="mla_rent_${i}" data-format="currency" data-raw="4" type="text" value="$4" /></label>
+      <label>Market Rent Format<select id="mla_rent_type_${i}"><option>$/SF/Mo</option><option>$/SF/Year</option><option>$/Year</option></select></label>
+      <label>TI New ($/SF)<input id="mla_ti_new_${i}" data-format="currency" data-raw="30" type="text" value="$30" /></label>
+      <label>TI Renewal ($/SF)<input id="mla_ti_ren_${i}" data-format="currency" data-raw="15" type="text" value="$15" /></label>
+      <label>Renewal Probability<input id="mla_renew_${i}" data-format="percent" data-raw="0.6" type="text" value="60.00%" /></label>
+      <label>Lease Term (months)<input id="mla_term_${i}" data-format="number" data-raw="60" type="text" value="60" /></label>
+      <label>Downtime (months)<input id="mla_downtime_${i}" data-format="number" data-raw="3" type="text" value="3" /></label>
+      <label>Free Rent New (mo)<input id="mla_fr_new_${i}" data-format="number" data-raw="4" type="text" value="4" /></label>
+      <label>Free Rent Renewal (mo)<input id="mla_fr_ren_${i}" data-format="number" data-raw="2" type="text" value="2" /></label>
+      <label>LC New<input id="mla_lc_new_${i}" data-format="percent" data-raw="0.05" type="text" value="5.00%" /></label>
+      <label>LC Renewal<input id="mla_lc_ren_${i}" data-format="percent" data-raw="0.03" type="text" value="3.00%" /></label>
     </div>
   `;
   c.appendChild(card);
@@ -354,6 +353,7 @@ function gatherAssumptions() {
     mlas.push({
       name: document.getElementById(`mla_name_${i}`).value.trim() || `MLA-${i}`,
       marketRent: getVal(`mla_rent_${i}`),
+      marketRentType: document.getElementById(`mla_rent_type_${i}`)?.value || "$/SF/Mo",
       tiNew: getVal(`mla_ti_new_${i}`),
       tiRenewal: getVal(`mla_ti_ren_${i}`),
       renewalProbability: getVal(`mla_renew_${i}`),
@@ -499,12 +499,31 @@ function getMlaMap(mlas) {
 
 function rentForMonth(assumptions, tenant, month) {
   const steps = [...(tenant.rentSteps || [])]
-    .map((s) => ({ date: s.date, rent: normalizeMonthlyRent(s.rent, tenant.rentType, tenant.sf), month: monthDiff(assumptions.acquisitionDate, s.date) }))
-    .filter((s) => s.date)
+    .map((step) => ({ ...step, month: monthDiff(assumptions.acquisitionDate, step.date) }))
+    .filter((step) => step.date)
     .sort((a, b) => a.month - b.month);
 
   let rent = tenant.currentRent;
-  for (const step of steps) if (month >= step.month) rent = step.rent;
+  for (const step of steps) {
+    if (month < step.month) continue;
+    const calcType = step.calcType || 'Rent Value';
+    if (calcType === '% Increase') {
+      const pct = Number(step.value ?? step.rent ?? 0);
+      rent *= (1 + pct);
+    } else {
+      const val = Number(step.value ?? step.rent ?? 0);
+      const type = step.rentType || tenant.rentType;
+      rent = normalizeMonthlyRent(val, type, tenant.sf);
+    }
+  }
+  return rent;
+}
+
+function marketRentPsfAtMonth(assumptions, mla, month, sf = 1) {
+  const basePsf = normalizeMonthlyRent(mla.marketRent || 0, mla.marketRentType || '$/SF/Mo', sf);
+  let rent = basePsf;
+  const yearIdx = Math.min(Math.floor((month - 1) / 12), 9);
+  for (let y = 0; y <= yearIdx; y++) rent *= (1 + (assumptions.growthByYear[y] || 0));
   return rent;
 }
 
@@ -576,7 +595,7 @@ function runModel(a) {
         const post = m - t.expMonth;
         const renewProb = Math.max(0, Math.min(1, mla.renewalProbability || 0));
         const newProb = 1 - renewProb;
-        const marketRent = marketRentAtMonth(a, mla.marketRent, m) * t.sf;
+        const marketRent = marketRentPsfAtMonth(a, mla, m, t.sf) * t.sf;
 
         potentialBaseRent += marketRent;
 
@@ -599,7 +618,8 @@ function runModel(a) {
           const weightedTi = (renewProb * (mla.tiRenewal || 0)) + (newProb * (mla.tiNew || 0));
           const weightedLc = (renewProb * (mla.lcRenewal || 0)) + (newProb * (mla.lcNew || 0));
           tiCosts += t.sf * weightedTi;
-          lcCosts += t.sf * mla.marketRent * mla.leaseTerm * weightedLc;
+          const leaseStartPsf = marketRentPsfAtMonth(a, mla, m, t.sf);
+          lcCosts += t.sf * leaseStartPsf * mla.leaseTerm * weightedLc;
         }
       }
     }
@@ -906,7 +926,7 @@ function renderRentRollOutput(assumptions) {
 
   const baseBody = rows.map((t) => {
     const ledMonth = Math.max(1, t.expMonth || monthDiff(assumptions.acquisitionDate, t.expirationDate));
-    const ledRent = marketRentAtMonth(assumptions, (t.currentRent || 0), ledMonth);
+    const ledRent = rentForMonth(assumptions, t, ledMonth);
     const pctBldg = assumptions.grossSf > 0 ? ((t.sf || 0) / assumptions.grossSf) : 0;
     return `<tr>
       <td>${t.name || ''}</td>
@@ -923,17 +943,17 @@ function renderRentRollOutput(assumptions) {
 
   const waTerm = rows.length ? (rows.reduce((sum, t) => sum + ((t.sf || 0) * (parseFloat(yearsBetween(assumptions.acquisitionDate, t.expirationDate)) || 0)), 0) / (totalSf || 1)) : 0;
   const waCurrent = rows.length ? rows.reduce((sum, t) => sum + ((t.sf || 0) * (t.currentRent || 0)), 0) / (totalSf || 1) : 0;
-  const waLed = rows.length ? rows.reduce((sum, t) => sum + ((t.sf || 0) * marketRentAtMonth(assumptions, (t.currentRent || 0), Math.max(1, t.expMonth || 1))), 0) / (totalSf || 1) : 0;
+  const waLed = rows.length ? rows.reduce((sum, t) => sum + ((t.sf || 0) * rentForMonth(assumptions, t, Math.max(1, t.expMonth || 1))), 0) / (totalSf || 1) : 0;
 
   const assumptionRows = rows.map((t) => {
     const mla = mlaMap[t.mlaName] || assumptions.mlas?.[0] || {};
     const renewProb = Math.max(0, Math.min(1, mla.renewalProbability || 0));
     const newProb = 1 - renewProb;
     const ledMonth = Math.max(1, t.expMonth || monthDiff(assumptions.acquisitionDate, t.expirationDate));
-    const ledRentAnnual = marketRentAtMonth(assumptions, (t.currentRent || 0), ledMonth) * 12;
-    const mlaRentAnnual = (mla.marketRent || 0) * 12;
-    const strikeRenew = marketRentAtMonth(assumptions, (mla.marketRent || 0), ledMonth) * 12;
-    const strikeNew = marketRentAtMonth(assumptions, (mla.marketRent || 0), ledMonth + Math.round(mla.downtimeMonths || 0)) * 12;
+    const ledRentAnnual = rentForMonth(assumptions, t, ledMonth) * 12;
+    const mlaRentAnnual = marketRentPsfAtMonth(assumptions, mla, 1, t.sf) * 12;
+    const strikeRenew = marketRentPsfAtMonth(assumptions, mla, ledMonth, t.sf) * 12;
+    const strikeNew = marketRentPsfAtMonth(assumptions, mla, ledMonth + Math.round(mla.downtimeMonths || 0), t.sf) * 12;
     const strikeRent = (renewProb * strikeRenew) + (newProb * strikeNew);
     const weightedDowntime = newProb * (mla.downtimeMonths || 0);
     const lcdDate = addMonths(t.expirationDate || assumptions.acquisitionDate, Math.round(weightedDowntime));
@@ -1515,19 +1535,36 @@ function openRentStepDialog(tenantIdx) {
   document.getElementById("stepDialogTitle").textContent = `Rent Steps: ${document.getElementById(`tenant_name_${tenantIdx}`)?.value || `Tenant ${tenantIdx}`}`;
   const body = document.getElementById("stepTableBody");
   body.innerHTML = "";
-  (state.rentStepsByTenant[tenantIdx] || []).forEach((s) => addStepRowToDialog(s.date, s.rent));
+  (state.rentStepsByTenant[tenantIdx] || []).forEach((step) => addStepRowToDialog(step));
   dialog.showModal();
 }
 
-function addStepRowToDialog(date = "", rent = 0) {
+function addStepRowToDialog(step = {}) {
+  const date = step.date || "";
+  const value = Number(step.value ?? step.rent ?? 0);
+  const calcType = step.calcType || "Rent Value";
+  const rentType = step.rentType || "$/SF/Mo";
   const tr = document.createElement("tr");
   tr.innerHTML = `
     <td><input type="date" value="${date}" /></td>
-    <td><input data-format="currency" data-raw="${rent}" value="${displayFormatted(rent, "currency")}" /></td>
+    <td><select><option ${calcType === "Rent Value" ? "selected" : ""}>Rent Value</option><option ${calcType === "% Increase" ? "selected" : ""}>% Increase</option></select></td>
+    <td><select><option ${rentType === "$/SF/Mo" ? "selected" : ""}>$/SF/Mo</option><option ${rentType === "$/SF/Year" ? "selected" : ""}>$/SF/Year</option><option ${rentType === "$/Year" ? "selected" : ""}>$/Year</option></select></td>
+    <td><input data-format="currency" data-raw="${value}" value="${displayFormatted(value, "currency")}" /></td>
     <td><button class="btn btn-danger" type="button" onclick="this.closest('tr').remove()">X</button></td>
   `;
   document.getElementById("stepTableBody").appendChild(tr);
   tr.querySelectorAll("input[data-format]").forEach(bindFormattedInput);
+
+  const calcSel = tr.querySelectorAll('select')[0];
+  const valInput = tr.querySelector('input[data-format]');
+  const sync = () => {
+    valInput.dataset.format = calcSel.value === '% Increase' ? 'percent' : 'currency';
+    const raw = parseFormatted(valInput.dataset.raw ?? valInput.value, valInput.dataset.format);
+    valInput.dataset.raw = String(raw);
+    valInput.value = displayFormatted(raw, valInput.dataset.format);
+  };
+  calcSel.addEventListener('change', sync);
+  sync();
 }
 
 function saveRentStepsFromDialog() {
@@ -1537,11 +1574,15 @@ function saveRentStepsFromDialog() {
   state.rentStepsByTenant[idx] = rows
     .map((row) => {
       const date = row.querySelector('input[type="date"]').value;
-      const rentInput = row.querySelector('input[data-format="currency"]');
-      const rent = parseFormatted(rentInput.dataset.raw ?? rentInput.value, "currency");
-      return { date, rent };
+      const selects = row.querySelectorAll('select');
+      const calcType = selects[0]?.value || "Rent Value";
+      const rentType = selects[1]?.value || "$/SF/Mo";
+      const valueInput = row.querySelector('input[data-format]');
+      const fmt = valueInput?.dataset.format || (calcType === "% Increase" ? "percent" : "currency");
+      const value = parseFormatted(valueInput?.dataset.raw ?? valueInput?.value, fmt);
+      return { date, value, calcType, rentType };
     })
-    .filter((x) => x.date && x.rent > 0);
+    .filter((x) => x.date && x.value > 0);
   renderRentStepSummary(idx);
 }
 
@@ -1551,7 +1592,7 @@ document.getElementById("addOpex").onclick = () => addOpexLine();
 document.getElementById("addCapex").onclick = () => addCapexLine();
 document.getElementById("analyzeSources").onclick = analyzeSourceMaterials;
 
-document.getElementById("addStepRow").onclick = () => addStepRowToDialog();
+document.getElementById("addStepRow").onclick = () => addStepRowToDialog({});
 document.getElementById("closeStepDialog").onclick = () => {
   saveRentStepsFromDialog();
   document.getElementById("rentStepDialog").close();

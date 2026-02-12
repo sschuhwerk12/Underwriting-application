@@ -37,9 +37,9 @@ body { margin: 0; background: var(--bg); color: var(--ink); font-family: Inter, 
 .tab-panel.active { display:block; }
 
 .rent-roll-preview { border:1px solid var(--line); border-radius:10px; overflow:auto; }
-.rent-roll-preview table { width:100%; border-collapse:collapse; min-width:1000px; }
-.rent-roll-preview th { background:#062766; color:#fff; font-size:0.78rem; padding:0.5rem; border-bottom:1px solid #324f86; }
-.rent-roll-preview td { background:#f4f4f4; border-bottom:1px solid #c6c6c6; padding:0.45rem; font-size:0.8rem; text-align:center; }
+.rent-roll-preview table { width:100%; border-collapse:collapse; table-layout: fixed; }
+.rent-roll-preview th { background:#062766; color:#fff; font-size:0.68rem; padding:0.35rem; border-bottom:1px solid #324f86; white-space: normal; }
+.rent-roll-preview td { background:#f4f4f4; border-bottom:1px solid #c6c6c6; padding:0.3rem; font-size:0.72rem; text-align:center; white-space: normal; }
 .rent-roll-preview td:first-child, .rent-roll-preview td:nth-child(2) { text-align:left; }
 .rent-roll-preview tfoot td { font-weight:700; background:#ececec; border-top:2px solid #222; }
 
@@ -112,7 +112,9 @@ input:focus, select:focus, textarea:focus {
   margin-bottom: 0.6rem;
 }
 .mla-grid { display: grid; gap: 0.5rem; }
-.mla-grid-row { grid-auto-flow: column; grid-auto-columns: minmax(170px, 1fr); min-width: 2050px; }
+.mla-grid-row { grid-template-columns: repeat(12, minmax(0, 1fr)); }
+.mla-grid-row label { font-size: 0.74rem; }
+.mla-grid-row input, .mla-grid-row select { padding: 0.35rem 0.45rem; font-size: 0.78rem; }
 
 .capex-grid { display: grid; grid-template-columns: 320px; margin-bottom: 0.65rem; }
 
