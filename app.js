@@ -228,6 +228,12 @@ function addTenant(prefill = {}) {
     <td><input id="tenant_sf_${i}" data-format="number" data-raw="${prefill.sf || 25000}" value="${displayFormatted(prefill.sf || 25000, "number")}" /></td>
     <td><input id="tenant_commence_${i}" type="date" data-format="date" value="${prefill.commencementDate || "2026-01-01"}" /></td>
     <td><input id="tenant_expire_${i}" type="date" data-format="date" value="${prefill.expirationDate || "2028-01-01"}" /></td>
+    <td>
+      <select id="tenant_upon_exp_${i}">
+        <option ${(prefill.uponExpiration || "Market") === "Market" ? "selected" : ""}>Market</option>
+        <option ${prefill.uponExpiration === "Vacate" ? "selected" : ""}>Vacate</option>
+      </select>
+    </td>
     <td><input id="tenant_rent_${i}" data-format="currency" data-raw="${prefill.currentRent || 3.75}" value="${displayFormatted(prefill.currentRent || 3.75, "currency")}" /></td>
     <td>
       <select id="tenant_rent_type_${i}">
@@ -379,6 +385,7 @@ function gatherAssumptions() {
       sf,
       commencementDate: getVal(`tenant_commence_${i}`),
       expirationDate: getVal(`tenant_expire_${i}`),
+      uponExpiration: document.getElementById(`tenant_upon_exp_${i}`)?.value || "Market",
       commencementMonth: monthDiff(acquisitionDate, getVal(`tenant_commence_${i}`)),
       expMonth: monthDiff(acquisitionDate, getVal(`tenant_expire_${i}`)),
       currentRent: monthlyRentPsf,
@@ -497,6 +504,11 @@ function getMlaMap(mlas) {
   return Object.fromEntries(mlas.map((m) => [m.name, m]));
 }
 
+function getTenantRenewalProbability(tenant, mla) {
+  if ((tenant.uponExpiration || 'Market') === 'Vacate') return 0;
+  return Math.max(0, Math.min(1, mla?.renewalProbability || 0));
+}
+
 function rentForMonth(assumptions, tenant, month) {
   const steps = [...(tenant.rentSteps || [])]
     .map((step) => ({ ...step, month: monthDiff(assumptions.acquisitionDate, step.date) }))
@@ -593,7 +605,7 @@ function runModel(a) {
         activeTenantSfMap[tenantKey] = (activeTenantSfMap[tenantKey] || 0) + t.sf;
       } else if (mla) {
         const post = m - t.expMonth;
-        const renewProb = Math.max(0, Math.min(1, mla.renewalProbability || 0));
+        const renewProb = getTenantRenewalProbability(t, mla);
         const newProb = 1 - renewProb;
         const marketRent = marketRentPsfAtMonth(a, mla, m, t.sf) * t.sf;
 
@@ -947,7 +959,7 @@ function renderRentRollOutput(assumptions) {
 
   const assumptionRows = rows.map((t) => {
     const mla = mlaMap[t.mlaName] || assumptions.mlas?.[0] || {};
-    const renewProb = Math.max(0, Math.min(1, mla.renewalProbability || 0));
+    const renewProb = getTenantRenewalProbability(t, mla);
     const newProb = 1 - renewProb;
     const ledMonth = Math.max(1, t.expMonth || monthDiff(assumptions.acquisitionDate, t.expirationDate));
     const ledRentAnnual = rentForMonth(assumptions, t, ledMonth) * 12;
@@ -1014,9 +1026,9 @@ function renderRentRollOutput(assumptions) {
         </table>
       </div>
       <div class="rent-roll-preview">
+        <div class="rent-roll-subtitle"><em><u>2nd Gen Assumptions</u></em></div>
         <table>
           <thead>
-            <tr><th colspan="9"><em><u>2nd Gen Assumptions</u></em></th></tr>
             <tr><th>Assumption @ LED</th><th>Downtime</th><th>LCD</th><th>Term</th><th>MLA Rent</th><th>Strike Rent</th><th>% Inc. vs. LED Rent</th><th>Bumps</th><th>TI PSF</th></tr>
           </thead>
           <tbody>${secondGenBody}</tbody>
@@ -1531,6 +1543,44 @@ async function analyzeSourceMaterials() {
   status.textContent = `Analyzed ${state.sourceFiles.length} file(s). Prefilled ${allTenants.length} rent-roll row(s) and ${assumptionHits} assumption field(s).${unsupportedMsg}${failMsg}`;
 }
 
+function getTenantBaseMonthlyRentPsf(tenantIdx) {
+  const sf = getVal(`tenant_sf_${tenantIdx}`);
+  const rentType = document.getElementById(`tenant_rent_type_${tenantIdx}`)?.value || "$/SF/Mo";
+  const rentValue = getVal(`tenant_rent_${tenantIdx}`);
+  return normalizeMonthlyRent(rentValue, rentType, sf);
+}
+
+function renderStepCalculationsForDialog(tenantIdx) {
+  const sf = Math.max(0, getVal(`tenant_sf_${tenantIdx}`));
+  const rows = [...document.querySelectorAll("#stepTableBody tr")].sort((a, b) => {
+    const ad = new Date(a.querySelector('input[type="date"]')?.value || '');
+    const bd = new Date(b.querySelector('input[type="date"]')?.value || '');
+    return ad - bd;
+  });
+
+  let priorMonthlyPsf = getTenantBaseMonthlyRentPsf(tenantIdx);
+
+  rows.forEach((row) => {
+    const selects = row.querySelectorAll('select');
+    const calcType = selects[0]?.value || "Rent Value";
+    const rentType = selects[1]?.value || "$/SF/Mo";
+    const valueInput = row.querySelector('input[data-format]');
+    const fmt = valueInput?.dataset.format || (calcType === "% Increase" ? "percent" : "currency");
+    const rawValue = parseFormatted(valueInput?.dataset.raw ?? valueInput?.value, fmt);
+
+    let monthlyPsf = priorMonthlyPsf;
+    if (calcType === "% Increase") {
+      monthlyPsf = priorMonthlyPsf * (1 + rawValue);
+    } else {
+      monthlyPsf = normalizeMonthlyRent(rawValue, rentType, sf);
+    }
+
+    row.querySelector('.step-rent-psf').textContent = formatCurrencySmart(monthlyPsf * 12);
+    row.querySelector('.step-annual-rent').textContent = formatCurrencySmart(monthlyPsf * sf * 12);
+    priorMonthlyPsf = monthlyPsf;
+  });
+}
+
 function openRentStepDialog(tenantIdx) {
   state.activeTenantForSteps = tenantIdx;
   const dialog = document.getElementById("rentStepDialog");
@@ -1538,6 +1588,7 @@ function openRentStepDialog(tenantIdx) {
   const body = document.getElementById("stepTableBody");
   body.innerHTML = "";
   (state.rentStepsByTenant[tenantIdx] || []).forEach((step) => addStepRowToDialog(step));
+  renderStepCalculationsForDialog(tenantIdx);
   dialog.showModal();
 }
 
@@ -1546,26 +1597,54 @@ function addStepRowToDialog(step = {}) {
   const value = Number(step.value ?? step.rent ?? 0);
   const calcType = step.calcType || "Rent Value";
   const rentType = step.rentType || "$/SF/Mo";
+  const valueFormat = calcType === "% Increase" ? "percent" : "currency";
   const tr = document.createElement("tr");
   tr.innerHTML = `
     <td><input type="date" value="${date}" /></td>
     <td><select><option ${calcType === "Rent Value" ? "selected" : ""}>Rent Value</option><option ${calcType === "% Increase" ? "selected" : ""}>% Increase</option></select></td>
     <td><select><option ${rentType === "$/SF/Mo" ? "selected" : ""}>$/SF/Mo</option><option ${rentType === "$/SF/Year" ? "selected" : ""}>$/SF/Year</option><option ${rentType === "$/Year" ? "selected" : ""}>$/Year</option></select></td>
-    <td><input data-format="currency" data-raw="${value}" value="${displayFormatted(value, "currency")}" /></td>
-    <td><button class="btn btn-danger" type="button" onclick="this.closest('tr').remove()">X</button></td>
+    <td><input data-format="${valueFormat}" data-raw="${value}" value="${displayFormatted(value, valueFormat)}" /></td>
+    <td class="step-rent-psf">-</td>
+    <td class="step-annual-rent">-</td>
+    <td><button class="btn btn-danger" type="button" onclick="this.closest('tr').remove(); renderStepCalculationsForDialog(state.activeTenantForSteps);">X</button></td>
   `;
   document.getElementById("stepTableBody").appendChild(tr);
   tr.querySelectorAll("input[data-format]").forEach(bindFormattedInput);
 
   const calcSel = tr.querySelectorAll('select')[0];
   const valInput = tr.querySelector('input[data-format]');
+  const rentTypeSel = tr.querySelectorAll('select')[1];
+  const dateInput = tr.querySelector('input[type="date"]');
+
+  let lastCalcType = calcSel.value;
   const sync = () => {
-    valInput.dataset.format = calcSel.value === '% Increase' ? 'percent' : 'currency';
-    const raw = parseFormatted(valInput.dataset.raw ?? valInput.value, valInput.dataset.format);
-    valInput.dataset.raw = String(raw);
-    valInput.value = displayFormatted(raw, valInput.dataset.format);
+    if (calcSel.value === '% Increase') {
+      valInput.dataset.format = 'percent';
+      if (lastCalcType !== '% Increase') {
+        valInput.dataset.raw = '0';
+        valInput.value = '';
+      } else {
+        const raw = parseFormatted(valInput.dataset.raw ?? valInput.value, 'percent');
+        valInput.dataset.raw = String(raw);
+        valInput.value = raw > 0 ? displayFormatted(raw, 'percent') : '';
+      }
+      valInput.placeholder = 'e.g. 3.00%';
+    } else {
+      valInput.dataset.format = 'currency';
+      const raw = parseFormatted(valInput.dataset.raw ?? valInput.value, 'currency');
+      valInput.dataset.raw = String(raw);
+      valInput.value = displayFormatted(raw, 'currency');
+      valInput.placeholder = '';
+    }
+    rentTypeSel.disabled = calcSel.value === '% Increase';
+    lastCalcType = calcSel.value;
+    renderStepCalculationsForDialog(state.activeTenantForSteps);
   };
+
   calcSel.addEventListener('change', sync);
+  rentTypeSel.addEventListener('change', () => renderStepCalculationsForDialog(state.activeTenantForSteps));
+  dateInput.addEventListener('change', () => renderStepCalculationsForDialog(state.activeTenantForSteps));
+  valInput.addEventListener('input', () => renderStepCalculationsForDialog(state.activeTenantForSteps));
   sync();
 }
 

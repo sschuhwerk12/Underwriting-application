@@ -43,6 +43,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font-family: Inter, 
 .rent-roll-preview td { background:#f4f4f4; border-bottom:1px solid #c6c6c6; padding:0.3rem; font-size:0.72rem; text-align:center; white-space: normal; }
 .rent-roll-preview td:first-child, .rent-roll-preview td:nth-child(2) { text-align:left; }
 .rent-roll-preview tfoot td { font-weight:700; background:#ececec; border-top:2px solid #222; }
+.rent-roll-subtitle { text-align:center; font-size:0.78rem; color:#0f2f6f; font-weight:600; padding:0.35rem 0.25rem 0.15rem; }
 @media (max-width: 1300px) { .rent-roll-row { grid-template-columns: 1fr; } }
 
 .panel {

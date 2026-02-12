@@ -65,11 +65,6 @@
         <div id="exitInputs" class="form-grid" style="grid-template-columns: repeat(3, minmax(200px, 320px)); display:grid; gap:0.6rem;"></div>
       </section>
 
-      <section class="panel">
-        <h2>6) Market Rent Growth (Global)</h2>
-        <div class="horizontal-scroll"><div id="growthInputs" class="growth-grid"></div></div>
-        <p class="muted">Base case defaults to 3% for Years 1-10.</p>
-      </section>
     </div>
 
     <div id="rentRollTab" class="tab-panel">
@@ -87,6 +82,7 @@
                 <th>SF</th>
                 <th>Lease Commencement</th>
                 <th>Lease Expiration</th>
+                <th>Upon Expiration</th>
                 <th>Current Rent</th>
                 <th>Rent Format</th>
                 <th>MLA Tranche</th>
@@ -107,6 +103,12 @@
     </div>
 
     <div id="marketLeasingTab" class="tab-panel">
+      <section class="panel">
+        <h2>6) Market Rent Growth (Global)</h2>
+        <div class="horizontal-scroll"><div id="growthInputs" class="growth-grid"></div></div>
+        <p class="muted">Base case defaults to 3% for Years 1-10.</p>
+      </section>
+
       <section class="panel">
         <div class="section-header">
           <h2>8) Market Leasing Assumption (MLA) Tranches</h2>
@@ -186,7 +188,7 @@
   <dialog id="rentStepDialog" class="step-dialog">
     <h3 id="stepDialogTitle">Rent Steps</h3>
     <table class="table" id="stepTable">
-      <thead><tr><th>Effective Date</th><th>Step Type</th><th>Rent Format</th><th>Value</th><th></th></tr></thead>
+      <thead><tr><th>Effective Date</th><th>Step Type</th><th>Rent Format</th><th>Value</th><th>Rent PSF</th><th>Annual Rent</th><th></th></tr></thead>
       <tbody id="stepTableBody"></tbody>
     </table>
     <div class="file-row" style="margin-top:.5rem;">
