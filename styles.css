@@ -111,8 +111,8 @@ input:focus, select:focus, textarea:focus {
   padding: 0.75rem;
   margin-bottom: 0.6rem;
 }
-.mla-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 0.5rem; }
-@media (max-width: 1400px) { .mla-grid { grid-template-columns: repeat(3, 1fr); } }
+.mla-grid { display: grid; gap: 0.5rem; }
+.mla-grid-row { grid-auto-flow: column; grid-auto-columns: minmax(170px, 1fr); min-width: 2050px; }
 
 .capex-grid { display: grid; grid-template-columns: 320px; margin-bottom: 0.65rem; }
 

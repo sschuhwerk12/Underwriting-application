@@ -51,7 +51,7 @@ function parseFormatted(value, formatType) {
 function displayFormatted(rawValue, formatType) {
   if (formatType === "text" || formatType === "date") return String(rawValue || "");
   const n = Number(rawValue || 0);
-  if (formatType === "currency") return moneyFmt.format(n);
+  if (formatType === "currency") return formatCurrencySmart(n);
   if (formatType === "percent") return pctFmt.format(n);
   return numFmt.format(n);
 }
@@ -65,6 +65,12 @@ function bindFormattedInput(input) {
     input.dataset.raw = String(raw);
     input.value = displayFormatted(raw, f);
     if (input.id.startsWith("capex_amount_")) renderCapexSummary();
+  });
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      input.blur();
+    }
   });
 }
 
@@ -182,30 +188,20 @@ function addMla() {
       <strong>MLA-${i}</strong>
       <button class="btn btn-danger" type="button" onclick="this.closest('.mla-card').remove(); refreshTenantMlaOptions();">Remove</button>
     </div>
-    <div class="mla-grid">
-      <label>Name</label>
-      <label>Market Rent ($/SF/Mo)</label>
-      <label>TI New ($/SF)</label>
-      <label>TI Renewal ($/SF)</label>
-      <label>Renewal Probability</label>
-      <label>Lease Term (months)</label>
-      <input id="mla_name_${i}" type="text" value="MLA-${i}" onblur="refreshTenantMlaOptions()" />
-      <input id="mla_rent_${i}" data-format="currency" data-raw="4" type="text" value="$4" />
-      <input id="mla_ti_new_${i}" data-format="currency" data-raw="30" type="text" value="$30" />
-      <input id="mla_ti_ren_${i}" data-format="currency" data-raw="15" type="text" value="$15" />
-      <input id="mla_renew_${i}" data-format="percent" data-raw="0.6" type="text" value="60.00%" />
-      <input id="mla_term_${i}" data-format="number" data-raw="60" type="text" value="60" />
-      <label>Downtime (months)</label>
-      <label>Free Rent New (mo)</label>
-      <label>Free Rent Renewal (mo)</label>
-      <label>LC New</label>
-      <label>LC Renewal</label>
-      <div></div>
-      <input id="mla_downtime_${i}" data-format="number" data-raw="3" type="text" value="3" />
-      <input id="mla_fr_new_${i}" data-format="number" data-raw="4" type="text" value="4" />
-      <input id="mla_fr_ren_${i}" data-format="number" data-raw="2" type="text" value="2" />
-      <input id="mla_lc_new_${i}" data-format="percent" data-raw="0.05" type="text" value="5.00%" />
-      <input id="mla_lc_ren_${i}" data-format="percent" data-raw="0.03" type="text" value="3.00%" />
+    <div class="horizontal-scroll">
+      <div class="mla-grid mla-grid-row">
+        <label>Name<input id="mla_name_${i}" type="text" value="MLA-${i}" onblur="refreshTenantMlaOptions()" /></label>
+        <label>Market Rent ($/SF/Mo)<input id="mla_rent_${i}" data-format="currency" data-raw="4" type="text" value="$4" /></label>
+        <label>TI New ($/SF)<input id="mla_ti_new_${i}" data-format="currency" data-raw="30" type="text" value="$30" /></label>
+        <label>TI Renewal ($/SF)<input id="mla_ti_ren_${i}" data-format="currency" data-raw="15" type="text" value="$15" /></label>
+        <label>Renewal Probability<input id="mla_renew_${i}" data-format="percent" data-raw="0.6" type="text" value="60.00%" /></label>
+        <label>Lease Term (months)<input id="mla_term_${i}" data-format="number" data-raw="60" type="text" value="60" /></label>
+        <label>Downtime (months)<input id="mla_downtime_${i}" data-format="number" data-raw="3" type="text" value="3" /></label>
+        <label>Free Rent New (mo)<input id="mla_fr_new_${i}" data-format="number" data-raw="4" type="text" value="4" /></label>
+        <label>Free Rent Renewal (mo)<input id="mla_fr_ren_${i}" data-format="number" data-raw="2" type="text" value="2" /></label>
+        <label>LC New<input id="mla_lc_new_${i}" data-format="percent" data-raw="0.05" type="text" value="5.00%" /></label>
+        <label>LC Renewal<input id="mla_lc_ren_${i}" data-format="percent" data-raw="0.03" type="text" value="3.00%" /></label>
+      </div>
     </div>
   `;
   c.appendChild(card);
@@ -330,6 +326,13 @@ function formatMonthYear(dateLike) {
   const d = new Date(dateLike);
   if (Number.isNaN(d.getTime())) return "";
   return d.toLocaleDateString("en-US", { month: "short", year: "2-digit" }).replace(" ", "-");
+}
+
+
+function formatDateMDY(dateLike) {
+  const d = new Date(dateLike);
+  if (Number.isNaN(d.getTime())) return "-";
+  return d.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
 }
 
 function normalizeMonthlyRent(rentValue, rentType, sf) {
@@ -874,7 +877,7 @@ function renderCapexSummary() {
     total += amt;
     reimb += amt * pct;
   }
-  document.getElementById("capexSummary").textContent = `Total Capex: ${moneyFmt.format(total)} | Potential Lender Reimbursement: ${moneyFmt.format(reimb)}`;
+  document.getElementById("capexSummary").textContent = `Total Capex: ${formatCurrencySmart(total)} | Potential Lender Reimbursement: ${formatCurrencySmart(reimb)}`;
 }
 
 function toHtmlTable(columns, rows) {
@@ -907,10 +910,10 @@ function renderRentRollOutput(assumptions) {
       <td>${t.suite || '-'}</td>
       <td>${numFmt.format(t.sf || 0)}</td>
       <td>${pctFmt.format(pctBldg)}</td>
-      <td>${t.expirationDate || '-'}</td>
+      <td>${formatDateMDY(t.expirationDate)}</td>
       <td>${yearsBetween(assumptions.acquisitionDate, t.expirationDate)}</td>
-      <td>${moneyFmt.format((t.currentRent || 0) * 12)}</td>
-      <td>${moneyFmt.format((ledRent || 0) * 12)}</td>
+      <td>${formatCurrencySmart((t.currentRent || 0) * 12)}</td>
+      <td>${formatCurrencySmart((ledRent || 0) * 12)}</td>
       <td>Net</td>
     </tr>`;
   }).join('');
@@ -922,7 +925,7 @@ function renderRentRollOutput(assumptions) {
   document.getElementById('rentRollOutput').innerHTML = `<div class="rent-roll-preview"><table>
     <thead><tr><th>Tenant</th><th>Suite</th><th>SF</th><th>% of Bldg</th><th>LED</th><th>Rem. Term</th><th>Rent PSF (Current)</th><th>Rent PSF @ LED</th><th>Gross/Net</th></tr></thead>
     <tbody>${body}</tbody>
-    <tfoot><tr><td>TOTAL / W.A.</td><td></td><td>${numFmt.format(totalSf)}</td><td>${pctFmt.format(assumptions.grossSf > 0 ? (totalSf / assumptions.grossSf) : 0)}</td><td></td><td>${waTerm.toFixed(1)} yrs.</td><td>${moneyFmt.format(waCurrent * 12)}</td><td>${moneyFmt.format(waLed * 12)}</td><td></td></tr></tfoot>
+    <tfoot><tr><td>TOTAL / W.A.</td><td></td><td>${numFmt.format(totalSf)}</td><td>${pctFmt.format(assumptions.grossSf > 0 ? (totalSf / assumptions.grossSf) : 0)}</td><td></td><td>${waTerm.toFixed(1)} yrs.</td><td>${formatCurrencySmart(waCurrent * 12)}</td><td>${formatCurrencySmart(waLed * 12)}</td><td></td></tr></tfoot>
   </table></div>`;
 }
 
@@ -933,10 +936,10 @@ function render(result) {
     ["Levered IRR", pctFmt.format(m.leveredIrr)],
     ["Unlevered Eq. Mult", `${m.unleveredEqMult.toFixed(2)}x`],
     ["Levered Eq. Mult", `${m.leveredEqMult.toFixed(2)}x`],
-    ["Levered Profit", moneyFmt.format(m.leveredProfit)],
+    ["Levered Profit", formatCurrencySmart(m.leveredProfit)],
   ].map(([k, v]) => `<div class="kpi"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
 
-  document.getElementById("summary").textContent = `INVESTMENT SUMMARY\n\nReturns (from monthly cash flows)\n- Unlevered IRR: ${pctFmt.format(m.unleveredIrr)}\n- Levered IRR: ${pctFmt.format(m.leveredIrr)}\n- Unlevered Equity Multiple: ${m.unleveredEqMult.toFixed(2)}x\n- Levered Equity Multiple: ${m.leveredEqMult.toFixed(2)}x\n- Levered Profit: ${moneyFmt.format(m.leveredProfit)}\n`;
+  document.getElementById("summary").textContent = `INVESTMENT SUMMARY\n\nReturns (from monthly cash flows)\n- Unlevered IRR: ${pctFmt.format(m.unleveredIrr)}\n- Levered IRR: ${pctFmt.format(m.leveredIrr)}\n- Unlevered Equity Multiple: ${m.unleveredEqMult.toFixed(2)}x\n- Levered Equity Multiple: ${m.leveredEqMult.toFixed(2)}x\n- Levered Profit: ${formatCurrencySmart(m.leveredProfit)}\n`;
 
   const metricRows = Object.entries(m).map(([k, v]) => [k, typeof v === "number" ? numFmt.format(v) : v]);
   document.getElementById("metrics").innerHTML = toHtmlTable(["Metric", "Value"], metricRows);
@@ -1023,6 +1026,31 @@ function parseRentRollFromText(text) {
     tenants.push({ name: name.slice(0, 60), suite: "", sf: Number(sfCandidate.replace(/,/g, "")), commencementDate, expirationDate, currentRent: Number(rentCandidate), rentType: "$/SF/Mo", mlaName: "MLA-1", rentSteps: [] });
   }
 
+
+  const ocrRows = [];
+  const rowRegex = /([A-Za-z][A-Za-z0-9&.()\-\/,\s]{2,})\s+([A-Za-z0-9\-/]+)\s+[\d,]{3,}\s+[\d,]{3,}\s+(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})\s+(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})[\s\S]{0,80}?\$\s*([\d.]{1,6})/g;
+  let m;
+  while ((m = rowRegex.exec(text)) !== null) {
+    const commencementDate = parseDateLike(m[3]);
+    const expirationDate = parseDateLike(m[4]);
+    if (!commencementDate || !expirationDate) continue;
+    const sfNearby = text.slice(Math.max(0, m.index - 60), m.index + 120).match(/[\d,]{3,}/g) || [];
+    const sf = Number((sfNearby[0] || "0").replace(/,/g, ""));
+    if (!sf) continue;
+    ocrRows.push({
+      name: m[1].trim().slice(0, 60),
+      suite: m[2].trim(),
+      sf,
+      commencementDate,
+      expirationDate,
+      currentRent: Number(m[5] || 0),
+      rentType: "$/SF/Mo",
+      mlaName: "MLA-1",
+      rentSteps: [],
+    });
+  }
+  tenants.push(...ocrRows);
+
   const seen = new Set();
   return tenants.filter((t) => {
     const key = `${t.name.toLowerCase()}|${t.sf}|${t.commencementDate}|${t.expirationDate}|${t.currentRent}`;
@@ -1098,6 +1126,13 @@ async function extractTextFromFile(file) {
   const bytes = new Uint8Array(await file.arrayBuffer());
   if (ext === "pdf") return extractPdfTextFromBytes(bytes);
 
+  if (["png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff", "gif"].includes(ext)) {
+    if (typeof window !== "undefined" && window.Tesseract) {
+      const { data } = await window.Tesseract.recognize(file, "eng", { logger: () => {} });
+      return data?.text || "";
+    }
+  }
+
   if (["txt", "md", "csv", "json", "yaml", "yml", "xml", "html", "htm", "rtf", "log", "ini"].includes(ext)) {
     return await file.text();
   }
@@ -1114,7 +1149,7 @@ async function analyzeSourceMaterials() {
     status.textContent = "No files selected. Upload source materials first.";
     return;
   }
-  status.textContent = `Analyzing ${state.sourceFiles.length} file(s) for assumptions and rent-roll rows...`;
+  status.textContent = `Analyzing ${state.sourceFiles.length} file(s) for assumptions and rent-roll rows (including OCR for images)...`;
 
   const allTenants = [];
   let assumptionHits = 0;
@@ -1229,6 +1264,15 @@ document.getElementById("fileDrop").addEventListener("change", (e) => {
 
 document.querySelectorAll(".tab-btn").forEach((btn) => {
   btn.addEventListener("click", () => activateTab(btn.dataset.tab));
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Enter") return;
+  const target = e.target;
+  if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement)) return;
+  if (target.closest("#stepTableBody")) return;
+  e.preventDefault();
+  target.blur();
 });
 
 initForm();
