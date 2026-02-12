@@ -1005,22 +1005,24 @@ function renderRentRollOutput(assumptions) {
   </tr>`;
 
   document.getElementById('rentRollOutput').innerHTML = `
-    <div class="rent-roll-preview">
-      <table>
-        <thead><tr><th>Tenant</th><th>Suite</th><th>SF</th><th>% of Bldg</th><th>LED</th><th>Rem. Term</th><th>Rent PSF (Current)</th><th>Rent PSF @ LED</th><th>Gross/Net</th></tr></thead>
-        <tbody>${baseBody}</tbody>
-        <tfoot><tr><td>TOTAL / W.A.</td><td></td><td>${numFmt.format(totalSf)}</td><td>${pctFmt.format(assumptions.grossSf > 0 ? (totalSf / assumptions.grossSf) : 0)}</td><td></td><td>${waTerm.toFixed(1)} yrs.</td><td>${formatCurrencySmart(waCurrent * 12)}</td><td>${formatCurrencySmart(waLed * 12)}</td><td></td></tr></tfoot>
-      </table>
-    </div>
-    <div class="rent-roll-preview" style="margin-top:0.8rem;">
-      <table>
-        <thead>
-          <tr><th colspan="9"><em><u>2nd Gen Assumptions</u></em></th></tr>
-          <tr><th>Assumption @ LED</th><th>Downtime</th><th>LCD</th><th>Term</th><th>MLA Rent</th><th>Strike Rent</th><th>% Inc. vs. LED Rent</th><th>Bumps</th><th>TI PSF</th></tr>
-        </thead>
-        <tbody>${secondGenBody}</tbody>
-        <tfoot>${secondGenFooter}</tfoot>
-      </table>
+    <div class="rent-roll-row">
+      <div class="rent-roll-preview">
+        <table>
+          <thead><tr><th>Tenant</th><th>Suite</th><th>SF</th><th>% of Bldg</th><th>LED</th><th>Rem. Term</th><th>Rent PSF (Current)</th><th>Rent PSF @ LED</th><th>Gross/Net</th></tr></thead>
+          <tbody>${baseBody}</tbody>
+          <tfoot><tr><td>TOTAL / W.A.</td><td></td><td>${numFmt.format(totalSf)}</td><td>${pctFmt.format(assumptions.grossSf > 0 ? (totalSf / assumptions.grossSf) : 0)}</td><td></td><td>${waTerm.toFixed(1)} yrs.</td><td>${formatCurrencySmart(waCurrent * 12)}</td><td>${formatCurrencySmart(waLed * 12)}</td><td></td></tr></tfoot>
+        </table>
+      </div>
+      <div class="rent-roll-preview">
+        <table>
+          <thead>
+            <tr><th colspan="9"><em><u>2nd Gen Assumptions</u></em></th></tr>
+            <tr><th>Assumption @ LED</th><th>Downtime</th><th>LCD</th><th>Term</th><th>MLA Rent</th><th>Strike Rent</th><th>% Inc. vs. LED Rent</th><th>Bumps</th><th>TI PSF</th></tr>
+          </thead>
+          <tbody>${secondGenBody}</tbody>
+          <tfoot>${secondGenFooter}</tfoot>
+        </table>
+      </div>
     </div>`;
 }
 
