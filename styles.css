@@ -141,8 +141,8 @@ pre {
 #tenantTable.table { min-width: 900px; }
 #stepTable.table { min-width: 650px; }
 
-.growth-grid { display:grid; grid-template-columns: repeat(5, 1fr); gap:0.5rem; }
-@media (max-width: 1200px) { .growth-grid { grid-template-columns: repeat(2, 1fr); } }
+.horizontal-scroll { overflow-x: auto; }
+.growth-grid { display:grid; grid-auto-flow:column; grid-auto-columns:minmax(130px, 1fr); gap:0.5rem; min-width:1450px; }
 #tenantTable.table { min-width: 1200px; }
 #opexTable.table { min-width: 1100px; }
 

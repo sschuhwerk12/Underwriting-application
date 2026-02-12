@@ -16,7 +16,7 @@ const pctFmt = new Intl.NumberFormat("en-US", { style: "percent", minimumFractio
 
 const mainConfig = [
   ["acquisitionDate", "Acquisition Date", "2026-01-01", "date"],
-  ["holdYears", "Hold Period (years)", 10, "number"],
+  ["holdYears", "Hold Period (years)", 5, "number"],
   ["grossSf", "Square Footage", 100000, "number"],
   ["purchasePrice", "Purchase Price ($)", 25000000, "currency"],
   ["closingCosts", "Closing Costs ($)", 750000, "currency"],
@@ -313,6 +313,19 @@ function addMonths(dateStr, monthsToAdd) {
   return d.toISOString().slice(0, 10);
 }
 
+function endOfMonth(dateStr, monthsToAdd = 0) {
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return null;
+  d.setMonth(d.getMonth() + monthsToAdd + 1, 0);
+  return d;
+}
+
+function formatMonthYear(dateLike) {
+  const d = new Date(dateLike);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("en-US", { month: "short", year: "2-digit" }).replace(" ", "-");
+}
+
 function normalizeMonthlyRent(rentValue, rentType, sf) {
   if (rentType === "$/SF/Mo") return rentValue;
   if (rentType === "$/SF/Year") return rentValue / 12;
@@ -582,6 +595,8 @@ function runModel(a) {
       }
     }
 
+    scheduledBaseRent = Math.max(0, potentialBaseRent - absorptionTurnoverVacancy - freeRent);
+
     const activeSf = Object.values(activeTenantSfMap).reduce((s, x) => s + x, 0);
     const { opexExpense, reimbursements } = opexMonthlyAndReimbursement(a, activeTenantSfMap, activeSf, a.grossSf);
     const netOpex = opexExpense - reimbursements;
@@ -701,32 +716,9 @@ function runModel(a) {
   };
 }
 
-function renderCashFlowStatement(result) {
-  const purchasePrice = result.assumptions.purchasePrice;
-  const acquisitionClosingCosts = result.assumptions.closingCosts;
-  const totalInvestmentCosts = purchasePrice + acquisitionClosingCosts;
-  const initialDebtInflow = purchasePrice * (result.assumptions.debt?.initialLtv || 0);
-  const initialOrigFee = initialDebtInflow * (result.assumptions.debt?.originationFee || 0);
-  const netEquityOutflow = totalInvestmentCosts - initialDebtInflow + initialOrigFee;
-
-  const monthSeries = [
-    {
-      month: 0,
-      date: result.assumptions.acquisitionDate,
-      purchasePrice,
-      acquisitionClosingCosts,
-      totalInvestmentCosts,
-      initialDebtInflow,
-      initialOrigFee,
-      netEquityOutflow,
-      unleveredCF: -totalInvestmentCosts,
-      leveredCF: -netEquityOutflow,
-    },
-    ...result.monthly.map((r) => ({ ...r, date: addMonths(result.assumptions.acquisitionDate, r.month) })),
-  ];
-
+function getCashFlowLineDefs(result) {
   const opexLineNames = result.assumptions.opexLines.map((o) => o.name).filter(Boolean);
-  const lineDefs = [
+  return [
     { section: 'Rental Revenue' },
     { label: 'Potential Base Rent', key: 'potentialBaseRent' },
     { label: 'Absorption & Turnover Vacancy', key: 'absorptionTurnoverVacancy', sign: -1 },
@@ -770,28 +762,96 @@ function renderCashFlowStatement(result) {
     { section: 'LEVERAGED CASH FLOW' },
     { label: 'Levered Cash Flow', key: 'leveredCF', subtotal: true },
   ];
+}
 
-  const getLineValue = (row, def) => {
+function renderStatementTable(result, containerId, periodSeries) {
+  const lineDefs = getCashFlowLineDefs(result);
+  const getLineValue = (row, def, periodsPerYear) => {
     if (def.formula) return def.formula(row);
     if (def.opexLineName) {
-      if (row.month === 0) return 0;
+      if (row.period === 0) return 0;
       const line = result.assumptions.opexLines.find((o) => o.name === def.opexLineName);
       if (!line) return 0;
       const annual = line.amountType === '$/SF/Year' ? line.amount * result.assumptions.grossSf : line.amount;
-      return (def.sign || 1) * (annual / 12);
+      return (def.sign || 1) * (annual / periodsPerYear);
     }
     return (def.sign || 1) * (row[def.key] || 0);
   };
 
   const rows = lineDefs.map((def) => {
-    if (def.section) return `<tr class="statement-section"><td>${def.section}</td><td colspan="${monthSeries.length}"></td></tr>`;
+    if (def.section) return `<tr class="statement-section"><td>${def.section}</td><td colspan="${periodSeries.length}"></td></tr>`;
     const cls = def.subtotal ? 'statement-subtotal' : '';
-    const vals = monthSeries.map((r) => `<td>${moneyFmt.format(getLineValue(r, def))}</td>`).join('');
+    const vals = periodSeries.map((r) => `<td>${moneyFmt.format(getLineValue(r, def, r.periodsPerYear || 12))}</td>`).join('');
     return `<tr class="${cls}"><td>${def.label}</td>${vals}</tr>`;
   }).join('');
 
-  const header = `<tr><th>Line Item</th>${monthSeries.map((r) => `<th>${r.month === 0 ? 'Acq ' : ''}${r.date}</th>`).join('')}</tr>`;
-  document.getElementById('cashFlowStatement').innerHTML = `<div class="statement-wrap"><table class="statement-table">${header}${rows}</table></div>`;
+  const header = `<tr><th>Line Item</th>${periodSeries.map((r) => `<th>${r.label}</th>`).join('')}</tr>`;
+  document.getElementById(containerId).innerHTML = `<div class="statement-wrap"><table class="statement-table">${header}${rows}</table></div>`;
+}
+
+function renderCashFlowStatement(result) {
+  const purchasePrice = result.assumptions.purchasePrice;
+  const acquisitionClosingCosts = result.assumptions.closingCosts;
+  const totalInvestmentCosts = purchasePrice + acquisitionClosingCosts;
+  const initialDebtInflow = purchasePrice * (result.assumptions.debt?.initialLtv || 0);
+  const initialOrigFee = initialDebtInflow * (result.assumptions.debt?.originationFee || 0);
+  const netEquityOutflow = totalInvestmentCosts - initialDebtInflow + initialOrigFee;
+
+  const monthSeries = [
+    {
+      period: 0,
+      label: formatMonthYear(endOfMonth(result.assumptions.acquisitionDate, 0)),
+      periodsPerYear: 12,
+      purchasePrice,
+      acquisitionClosingCosts,
+      totalInvestmentCosts,
+      initialDebtInflow,
+      initialOrigFee,
+      netEquityOutflow,
+      unleveredCF: -totalInvestmentCosts,
+      leveredCF: -netEquityOutflow,
+    },
+    ...result.monthly.map((r) => ({
+      ...r,
+      period: r.month,
+      label: formatMonthYear(endOfMonth(result.assumptions.acquisitionDate, r.month)),
+      periodsPerYear: 12,
+    })),
+  ];
+
+  const annualSeries = [
+    {
+      period: 0,
+      label: formatMonthYear(endOfMonth(result.assumptions.acquisitionDate, 0)),
+      periodsPerYear: 1,
+      purchasePrice,
+      acquisitionClosingCosts,
+      totalInvestmentCosts,
+      initialDebtInflow,
+      initialOrigFee,
+      netEquityOutflow,
+      unleveredCF: -totalInvestmentCosts,
+      leveredCF: -netEquityOutflow,
+    },
+  ];
+
+  const years = Math.floor(result.assumptions.holdMonths / 12);
+  for (let y = 1; y <= years; y++) {
+    const slice = result.monthly.slice((y - 1) * 12, y * 12);
+    const agg = { period: y, label: formatMonthYear(endOfMonth(result.assumptions.acquisitionDate, y * 12 - 1)), periodsPerYear: 1 };
+    const keys = [
+      'potentialBaseRent', 'absorptionTurnoverVacancy', 'freeRent', 'scheduledBaseRent', 'expenseRecoveries', 'opexExpense', 'noi',
+      'tiCosts', 'lcCosts', 'leasingCosts', 'capex', 'reserves', 'totalCapitalExpenditures', 'unlevered', 'grossSaleProceeds',
+      'saleClosingCosts', 'netSaleProceeds', 'debtPayoff', 'unleveredCF', 'interestExpense', 'principalAmortization', 'debtService', 'reimbursement', 'levered', 'leveredCF'
+    ];
+    keys.forEach((k) => { agg[k] = slice.reduce((s, r) => s + (r[k] || 0), 0); });
+    agg.debtBeginningBalance = slice[0]?.debtBeginningBalance || 0;
+    agg.debtEndingBalance = slice[slice.length - 1]?.debtEndingBalance || 0;
+    annualSeries.push(agg);
+  }
+
+  renderStatementTable(result, 'cashFlowStatement', monthSeries);
+  renderStatementTable(result, 'annualCashFlowStatement', annualSeries);
 }
 
 function renderCapexSummary() {
@@ -831,7 +891,7 @@ function renderRentRollOutput(assumptions) {
   const totalSf = rows.reduce((sum, t) => sum + (t.sf || 0), 0);
   const body = rows.map((t) => {
     const ledRent = marketRentAtMonth(assumptions, (t.currentRent || 0), Math.max(1, t.expMonth || 1));
-    const pctBldg = totalSf > 0 ? ((t.sf || 0) / totalSf) : 0;
+    const pctBldg = assumptions.grossSf > 0 ? ((t.sf || 0) / assumptions.grossSf) : 0;
     return `<tr>
       <td>${t.name || ''}</td>
       <td>${t.suite || '-'}</td>
@@ -852,7 +912,7 @@ function renderRentRollOutput(assumptions) {
   document.getElementById('rentRollOutput').innerHTML = `<div class="rent-roll-preview"><table>
     <thead><tr><th>Tenant</th><th>Suite</th><th>SF</th><th>% of Bldg</th><th>LED</th><th>Rem. Term</th><th>Rent PSF (Current)</th><th>Rent PSF @ LED</th><th>Gross/Net</th></tr></thead>
     <tbody>${body}</tbody>
-    <tfoot><tr><td>TOTAL / W.A.</td><td></td><td>${numFmt.format(totalSf)}</td><td>${pctFmt.format(totalSf > 0 ? 1 : 0)}</td><td></td><td>${waTerm.toFixed(1)} yrs.</td><td>${moneyFmt.format(waCurrent * 12)}</td><td>${moneyFmt.format(waLed * 12)}</td><td></td></tr></tfoot>
+    <tfoot><tr><td>TOTAL / W.A.</td><td></td><td>${numFmt.format(totalSf)}</td><td>${pctFmt.format(assumptions.grossSf > 0 ? (totalSf / assumptions.grossSf) : 0)}</td><td></td><td>${waTerm.toFixed(1)} yrs.</td><td>${moneyFmt.format(waCurrent * 12)}</td><td>${moneyFmt.format(waLed * 12)}</td><td></td></tr></tfoot>
   </table></div>`;
 }
 
@@ -871,8 +931,6 @@ function render(result) {
   const metricRows = Object.entries(m).map(([k, v]) => [k, typeof v === "number" ? numFmt.format(v) : v]);
   document.getElementById("metrics").innerHTML = toHtmlTable(["Metric", "Value"], metricRows);
 
-  const annualRows = result.annual.map((r) => [r.year, moneyFmt.format(r.annualNoi), moneyFmt.format(r.annualUnlevered), moneyFmt.format(r.annualLevered)]);
-  document.getElementById("annual").innerHTML = toHtmlTable(["Year", "Annual NOI", "Annual Unlevered CF", "Annual Levered CF"], annualRows);
   renderCashFlowStatement(result);
   renderRentRollOutput(result.assumptions);
 }
