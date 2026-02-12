@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Institutional Underwriting Platform</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>Institutional Real Estate Underwriting</h1>
+      <p>Monthly DCF • Annual rollups • Rent-roll ingest from OMs • Excel exports</p>
+    </div>
+    <div class="topbar-actions">
+      <button id="runModel" class="btn btn-primary">Run Model</button>
+      <button id="exportSummaryExcel" class="btn">Export Summary Excel</button>
+      <button id="exportModelExcel" class="btn">Export Full Model Excel</button>
+    </div>
+  </header>
+
+  <main class="container">
+    <div class="tabs" role="tablist" aria-label="Underwriting tabs">
+      <button class="tab-btn active" data-tab="inputsTab" type="button">Inputs</button>
+      <button class="tab-btn" data-tab="rentRollTab" type="button">Rent Roll</button>
+      <button class="tab-btn" data-tab="marketLeasingTab" type="button">Market Leasing</button>
+      <button class="tab-btn" data-tab="capitalTab" type="button">Capital</button>
+      <button class="tab-btn" data-tab="resultsTab" type="button">Results</button>
+    </div>
+
+    <div id="inputsTab" class="tab-panel active">
+      <section class="panel">
+        <h2>1) Source Materials (Rent Roll Ingestion)</h2>
+        <div class="file-row">
+          <input id="fileDrop" type="file" accept="*/*" multiple />
+          <button id="analyzeSources" class="btn btn-primary">Analyze Files for Autofill</button>
+          <button id="exportJson" class="btn">Export Assumptions JSON</button>
+          <button id="exportReport" class="btn">Export Markdown Summary</button>
+        </div>
+        <p class="muted">Analyzer extracts rent-roll rows and prefills tenant lines.</p>
+        <div id="fileList" class="chip-list"></div>
+        <div id="sourceStatus" class="muted"></div>
+      </section>
+
+      <section class="grid-3">
+        <section class="panel">
+          <h2>2) Main Inputs</h2>
+          <div id="mainInputs" class="form-grid"></div>
+        </section>
+
+        <section class="panel">
+          <h2>3) Leverage Inputs</h2>
+          <div id="debtInputs" class="form-grid"></div>
+        </section>
+
+        <section class="panel">
+          <h2>4) Refinance Inputs</h2>
+          <label class="inline-label"><input type="checkbox" id="enableRefi" /> Enable refinance case</label>
+          <div id="refiInputs" class="form-grid"></div>
+        </section>
+      </section>
+
+      <section class="panel">
+        <h2>5) Exit Assumptions</h2>
+        <div id="exitInputs" class="form-grid" style="grid-template-columns: repeat(3, minmax(200px, 320px)); display:grid; gap:0.6rem;"></div>
+      </section>
+
+      <section class="panel">
+        <h2>6) Market Rent Growth (Global)</h2>
+        <div class="horizontal-scroll"><div id="growthInputs" class="growth-grid"></div></div>
+        <p class="muted">Base case defaults to 3% for Years 1-10.</p>
+      </section>
+    </div>
+
+    <div id="rentRollTab" class="tab-panel">
+      <section class="panel">
+        <div class="section-header">
+          <h2>7) Tenant Rent Roll</h2>
+          <button id="addTenant" class="btn">+ Add Tenant / Suite</button>
+        </div>
+        <div class="table-wrap">
+          <table class="table" id="tenantTable">
+            <thead>
+              <tr>
+                <th>Tenant</th>
+                <th>Suite</th>
+                <th>SF</th>
+                <th>Lease Commencement</th>
+                <th>Lease Expiration</th>
+                <th>Current Rent</th>
+                <th>Rent Format</th>
+                <th>MLA Tranche</th>
+                <th>Annual Rent Steps</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="tenantContainer"></tbody>
+          </table>
+        </div>
+        <p class="muted">Vacant suites are recognized when commencement is after acquisition date. Rent is zero before commencement.</p>
+      </section>
+
+      <section class="panel">
+        <h2>Rent Roll Output Preview</h2>
+        <div id="rentRollOutput"></div>
+      </section>
+    </div>
+
+    <div id="marketLeasingTab" class="tab-panel">
+      <section class="panel">
+        <div class="section-header">
+          <h2>8) Market Leasing Assumption (MLA) Tranches</h2>
+          <button id="addMla" class="btn">+ Add MLA Tranche</button>
+        </div>
+        <div id="mlaContainer"></div>
+      </section>
+    </div>
+
+    <div id="capitalTab" class="tab-panel">
+      <section class="panel">
+        <div class="section-header">
+          <h2>9) Operating Expenses</h2>
+          <button id="addOpex" class="btn">+ Add Opex Line</button>
+        </div>
+        <div class="table-wrap">
+          <table class="table" id="opexTable">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Amount</th>
+                <th>Amount Type</th>
+                <th>Reimbursable?</th>
+                <th>Reimbursing Tenants (comma-separated names; blank = all)</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="opexContainer"></tbody>
+          </table>
+        </div>
+        <p class="muted">Default is reimbursable by all tenants.</p>
+      </section>
+
+      <section class="panel">
+        <div class="section-header">
+          <h2>10) Capital Budget & Reserves</h2>
+          <button id="addCapex" class="btn">+ Add Capex Line</button>
+        </div>
+        <div class="capex-grid">
+          <label>General Capital Reserves ($/month)
+            <input id="reservesMonthly" data-format="currency" type="text" value="15,000" />
+          </label>
+        </div>
+        <div class="table-wrap">
+          <table class="table" id="capexTable">
+            <thead>
+              <tr>
+                <th>Month</th>
+                <th>Category</th>
+                <th>Amount ($)</th>
+                <th>Reimbursable by Lender</th>
+                <th>Notes</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="capexContainer"></tbody>
+          </table>
+        </div>
+        <div id="capexSummary" class="muted"></div>
+      </section>
+    </div>
+
+    <div id="resultsTab" class="tab-panel">
+      <section class="panel">
+        <h2>11) Results</h2>
+        <div id="kpiBar" class="kpi-bar"></div>
+        <pre id="summary"></pre>
+        <div id="metrics"></div>
+        <h3 style="margin-top:1rem;">Monthly Cash Flow Statement (Horizontal)</h3>
+        <div id="cashFlowStatement"></div>
+        <h3 style="margin-top:1rem;">Annual Cash Flow Statement (Horizontal)</h3>
+        <div id="annualCashFlowStatement"></div>
+      </section>
+    </div>
+  </main>
+
+  <dialog id="rentStepDialog" class="step-dialog">
+    <h3 id="stepDialogTitle">Rent Steps</h3>
+    <table class="table" id="stepTable">
+      <thead><tr><th>Effective Date</th><th>Rent (value using selected format)</th><th></th></tr></thead>
+      <tbody id="stepTableBody"></tbody>
+    </table>
+    <div class="file-row" style="margin-top:.5rem;">
+      <button id="addStepRow" class="btn">+ Add Annual Rent Step</button>
+      <button id="closeStepDialog" class="btn btn-primary">Save & Close</button>
+    </div>
+  </dialog>
+
+  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
