@@ -996,7 +996,7 @@ function extractPdfTextFromBytes(bytes) {
   const slice = bytes.slice(0, Math.min(bytes.length, 7_000_000));
   const latin = new TextDecoder("latin1").decode(slice);
   const textRuns = [];
-  const literalMatches = latin.match(/\((?:\\.|[^\\)]){5,}\)/g) || [];
+  const literalMatches = latin.match(/\((?:\.|[^\)]){5,}\)/g) || [];
   for (let i = 0; i < literalMatches.length && i < 5000; i++) textRuns.push(literalMatches[i].slice(1, -1));
   const printable = latin.match(/[A-Za-z0-9$%,.\/()\-:\s]{30,}/g) || [];
   for (let i = 0; i < printable.length && i < 5000; i++) textRuns.push(printable[i]);
@@ -1005,8 +1005,9 @@ function extractPdfTextFromBytes(bytes) {
 
 function parseRentRollFromText(text) {
   const tenants = [];
-  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const lines = String(text || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
 
+  // Heuristic 1: generic line parser with 2 dates + numeric tokens.
   for (const line of lines) {
     const dateMatches = line.match(/\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}|\d{4}[\/-]\d{1,2}[\/-]\d{1,2}/g) || [];
     const numMatches = line.match(/[\d,]+(?:\.\d+)?/g) || [];
@@ -1017,43 +1018,63 @@ function parseRentRollFromText(text) {
     if (!commencementDate || !expirationDate) continue;
 
     const sfCandidate = numMatches.find((n) => Number(n.replace(/,/g, "")) > 1000);
-    const rentCandidate = [...numMatches].reverse().find((n) => Number(n) > 0 && Number(n) < 200);
+    const rentCandidate = [...numMatches].reverse().find((n) => Number(n) > 0 && Number(n) < 500);
     if (!sfCandidate || !rentCandidate) continue;
 
     let name = line.replace(dateMatches[0], "").replace(dateMatches[1], "").replace(sfCandidate, "").replace(rentCandidate, "").trim();
     if (!name || /^\d+$/.test(name)) name = `Suite ${tenants.length + 1}`;
 
-    tenants.push({ name: name.slice(0, 60), suite: "", sf: Number(sfCandidate.replace(/,/g, "")), commencementDate, expirationDate, currentRent: Number(rentCandidate), rentType: "$/SF/Mo", mlaName: "MLA-1", rentSteps: [] });
+    tenants.push({
+      name: name.slice(0, 60),
+      suite: "",
+      sf: Number(sfCandidate.replace(/,/g, "")),
+      commencementDate,
+      expirationDate,
+      currentRent: Number(rentCandidate),
+      rentType: "$/SF/Mo",
+      mlaName: "MLA-1",
+      rentSteps: [],
+    });
   }
 
-
+  // Heuristic 2: OCR table-like row parser (tenant/suite/sf/start/end/rent pattern).
   const ocrRows = [];
-  const rowRegex = /([A-Za-z][A-Za-z0-9&.()\-\/,\s]{2,})\s+([A-Za-z0-9\-/]+)\s+[\d,]{3,}\s+[\d,]{3,}\s+(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})\s+(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})[\s\S]{0,80}?\$\s*([\d.]{1,6})/g;
+  const rowRegex = /([A-Za-z][A-Za-z0-9&.()\-\/,\s]{2,})\s+([A-Za-z0-9\-/]+)\s+[\d,]{3,}\s+[\d,]{3,}\s+(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})\s+(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})[\s\S]{0,100}?\$\s*([\d.]{1,8})/g;
   let m;
   while ((m = rowRegex.exec(text)) !== null) {
     const commencementDate = parseDateLike(m[3]);
     const expirationDate = parseDateLike(m[4]);
     if (!commencementDate || !expirationDate) continue;
-    const sfNearby = text.slice(Math.max(0, m.index - 60), m.index + 120).match(/[\d,]{3,}/g) || [];
+    const sfNearby = text.slice(Math.max(0, m.index - 80), m.index + 180).match(/[\d,]{3,}/g) || [];
     const sf = Number((sfNearby[0] || "0").replace(/,/g, ""));
     if (!sf) continue;
+
+    // Build rent steps if repeated Date + $Amount pairs exist on the row chunk.
+    const chunk = text.slice(m.index, m.index + 450);
+    const stepMatches = [...chunk.matchAll(/(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})[^$]{0,25}\$\s*([\d,]+(?:\.\d+)?)/g)];
+    const rentSteps = stepMatches.slice(1).map((x) => ({
+      date: parseDateLike(x[1]),
+      rent: Number(String(x[2]).replace(/,/g, "")),
+    })).filter((x) => x.date && x.rent > 0);
+
     ocrRows.push({
       name: m[1].trim().slice(0, 60),
       suite: m[2].trim(),
       sf,
       commencementDate,
       expirationDate,
-      currentRent: Number(m[5] || 0),
+      currentRent: Number(String(m[5]).replace(/,/g, "")) || 0,
       rentType: "$/SF/Mo",
       mlaName: "MLA-1",
-      rentSteps: [],
+      rentSteps,
     });
   }
   tenants.push(...ocrRows);
 
+  // De-dupe parsed rows.
   const seen = new Set();
   return tenants.filter((t) => {
-    const key = `${t.name.toLowerCase()}|${t.sf}|${t.commencementDate}|${t.expirationDate}|${t.currentRent}`;
+    const key = `${(t.name || "").toLowerCase()}|${t.suite || ""}|${t.sf}|${t.commencementDate}|${t.expirationDate}|${t.currentRent}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -1072,12 +1093,11 @@ function prefillRentRoll(tenants) {
   tenants.forEach((t) => addTenant(t));
 }
 
-
 function parseValueFromText(text, patterns) {
   for (const p of patterns) {
     const m = text.match(p);
     if (m && m[1]) {
-      const n = Number(m[1].replace(/,/g, ""));
+      const n = Number(String(m[1]).replace(/,/g, ""));
       if (Number.isFinite(n)) return n;
     }
   }
@@ -1121,7 +1141,6 @@ function applyPrefillFromText(rawText) {
   return updates;
 }
 
-
 function detectFileType(file) {
   const ext = (file.name.split('.').pop() || '').toLowerCase();
   const mime = (file.type || '').toLowerCase();
@@ -1162,10 +1181,130 @@ function applyPrefillFromObject(obj) {
   return { updates, tenants };
 }
 
+// Extract machine text from PDF pages using PDF.js.
+async function extractPdfTextWithPdfJs(file) {
+  if (!(window.pdfjsLib && window.pdfjsLib.getDocument)) return '';
+  const bytes = await file.arrayBuffer();
+  const loadingTask = window.pdfjsLib.getDocument({ data: bytes });
+  const pdf = await loadingTask.promise;
+  const chunks = [];
+  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+    const page = await pdf.getPage(pageNum);
+    const content = await page.getTextContent();
+    const pageText = content.items.map((item) => item.str).join(' ');
+    chunks.push(pageText);
+  }
+  return chunks.join('\n');
+}
+
+// If PDF has little/no extractable text, render pages and OCR via Tesseract.
+async function ocrPdfWithTesseract(file) {
+  if (!(window.pdfjsLib && window.pdfjsLib.getDocument && window.Tesseract)) return '';
+  const bytes = await file.arrayBuffer();
+  const loadingTask = window.pdfjsLib.getDocument({ data: bytes });
+  const pdf = await loadingTask.promise;
+  const ocrChunks = [];
+
+  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+    const page = await pdf.getPage(pageNum);
+    const viewport = page.getViewport({ scale: 1.8 });
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = Math.floor(viewport.width);
+    canvas.height = Math.floor(viewport.height);
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    const { data } = await window.Tesseract.recognize(canvas, 'eng', { logger: () => {} });
+    ocrChunks.push(data?.text || '');
+  }
+  return ocrChunks.join('\n');
+}
+
+// Parse tenant rows from header-driven table blocks in PDF text.
+function parseTenantsFromPdfTableText(text) {
+  const raw = String(text || '');
+  const lines = raw.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+  const headerIndex = lines.findIndex((line) => /tenant\s*name/i.test(line) && /suite/i.test(line) && /(lease\s*start|commencement)/i.test(line));
+  if (headerIndex < 0) return [];
+
+  const parsed = [];
+  for (let i = headerIndex + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (/^(total|grand\s*total)/i.test(line)) break;
+    const dateMatches = line.match(/\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}/g) || [];
+    if (dateMatches.length < 2) continue;
+
+    const start = parseDateLike(dateMatches[0]);
+    const end = parseDateLike(dateMatches[1]);
+    if (!start || !end) continue;
+
+    const suiteMatch = line.match(/\s([A-Za-z0-9\-\/]+)\s+/);
+    const suite = suiteMatch ? suiteMatch[1] : '';
+    const sfMatch = line.match(/[\s,](\d{1,3}(?:,\d{3})+|\d{4,})[\s,]/);
+    const sf = sfMatch ? Number(sfMatch[1].replace(/,/g, '')) : 0;
+
+    const annualRentMatch = line.match(/\$\s*([\d,]+(?:\.\d+)?)\s*(?:annual|\/yr|yr)?/i);
+    const monthlyRentMatch = line.match(/monthly[^$]{0,20}\$\s*([\d,]+(?:\.\d+)?)/i);
+    const psfMatch = line.match(/psf[^$\d]{0,10}\$?\s*([\d]+(?:\.\d+)?)/i);
+
+    let currentRent = 0;
+    if (psfMatch) currentRent = Number(psfMatch[1]) / 12;
+    else if (annualRentMatch && sf > 0) currentRent = Number(annualRentMatch[1].replace(/,/g, '')) / sf / 12;
+    else if (monthlyRentMatch && sf > 0) currentRent = Number(monthlyRentMatch[1].replace(/,/g, '')) / sf;
+
+    const namePart = line.split(dateMatches[0])[0].replace(/\$[^\s]+/g, '').trim();
+    const name = namePart || `Tenant ${parsed.length + 1}`;
+
+    // Pull possible rent-step series: repeated DATE + $ amount patterns.
+    const stepMatches = [...line.matchAll(/(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})[^$]{0,30}\$\s*([\d,]+(?:\.\d+)?)/g)];
+    const rentSteps = stepMatches.slice(1).map((x) => ({
+      date: parseDateLike(x[1]),
+      rent: sf > 0 ? (Number(String(x[2]).replace(/,/g, '')) / sf / 12) : Number(String(x[2]).replace(/,/g, '')),
+    })).filter((x) => x.date && x.rent > 0);
+
+    parsed.push({
+      name: name.slice(0, 60),
+      suite,
+      sf,
+      commencementDate: start,
+      expirationDate: end,
+      currentRent: currentRent || 0,
+      rentType: '$/SF/Mo',
+      mlaName: 'MLA-1',
+      rentSteps,
+    });
+  }
+
+  return parsed.filter((t) => t.name && (t.sf > 0 || t.currentRent > 0));
+}
+
 async function extractTextFromFile(file) {
   const ext = (file.name.split(".").pop() || "").toLowerCase();
   const bytes = new Uint8Array(await file.arrayBuffer());
-  if (ext === "pdf") return extractPdfTextFromBytes(bytes);
+
+  if (ext === "pdf") {
+    // 1) Try PDF.js text extraction first.
+    let text = '';
+    try {
+      text = await extractPdfTextWithPdfJs(file);
+    } catch (err) {
+      console.warn('PDF.js extraction failed, falling back to raw extraction.', err);
+      text = '';
+    }
+
+    // 2) Fallback to legacy byte-based extraction for resilience.
+    if (!String(text || '').trim()) text = extractPdfTextFromBytes(bytes);
+
+    // 3) If still empty and OCR is available, OCR the PDF pages.
+    if (!String(text || '').trim()) {
+      try {
+        text = await ocrPdfWithTesseract(file);
+      } catch (err) {
+        console.warn('PDF OCR failed.', err);
+      }
+    }
+
+    return text;
+  }
 
   if (["png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff", "gif"].includes(ext)) {
     if (typeof window !== "undefined" && window.Tesseract) {
@@ -1184,6 +1323,7 @@ async function extractTextFromFile(file) {
 ${latin}`;
 }
 
+// Main upload analyzer with typed branches, validation, and progress feedback.
 async function analyzeSourceMaterials() {
   const status = document.getElementById("sourceStatus");
   if (!state.sourceFiles.length) {
@@ -1226,8 +1366,8 @@ async function analyzeSourceMaterials() {
         const idxName = h.findIndex((x) => x.includes('tenant') || x.includes('name'));
         const idxSuite = h.findIndex((x) => x.includes('suite'));
         const idxSf = h.findIndex((x) => x === 'sf' || x.includes('square'));
-        const idxCommence = h.findIndex((x) => x.includes('commence'));
-        const idxExpire = h.findIndex((x) => x.includes('expir'));
+        const idxCommence = h.findIndex((x) => x.includes('commence') || x.includes('lease start'));
+        const idxExpire = h.findIndex((x) => x.includes('expir') || x.includes('lease end'));
         const idxRent = h.findIndex((x) => x.includes('rent'));
 
         rows.forEach((cols, i) => {
@@ -1237,13 +1377,35 @@ async function analyzeSourceMaterials() {
             sf: Number((cols[idxSf >= 0 ? idxSf : 1] || "0").replace(/,/g, "")),
             commencementDate: parseDateLike(cols[idxCommence >= 0 ? idxCommence : 2]) || "2026-01-01",
             expirationDate: parseDateLike(cols[idxExpire >= 0 ? idxExpire : 3]) || "2028-01-01",
-            currentRent: Number(cols[idxRent >= 0 ? idxRent : 4] || 0),
+            currentRent: Number(String(cols[idxRent >= 0 ? idxRent : 4] || 0).replace(/,/g, "")) || 0,
             rentType: "$/SF/Mo",
             mlaName: "MLA-1",
             rentSteps: [],
           };
-          if (t.sf > 0) allTenants.push(t);
+          if (t.sf > 0 || t.currentRent > 0) allTenants.push(t);
         });
+      } else if (detectedType === 'pdf') {
+        const text = await extractTextFromFile(file);
+        if (!String(text || '').trim()) {
+          failed.push(`${file.name} (PDF text extraction failed)`);
+          continue;
+        }
+
+        // 1) assumptions from text
+        const hits = applyPrefillFromText(text) || [];
+        assumptionHits += hits.length;
+
+        // 2) structured table parsing from PDF headers/rows
+        const pdfTableTenants = parseTenantsFromPdfTableText(text);
+        // 3) fallback generic parsers
+        const fallbackTenants = parseRentRollFromText(text);
+        const combined = [...pdfTableTenants, ...fallbackTenants];
+        if (!combined.length) unsupported += 1;
+        allTenants.push(...combined);
+
+        // Debug logging requested by user.
+        console.log('PDF extracted text preview:', text.slice(0, 2000));
+        console.log('PDF parsed tenants:', combined);
       } else {
         const text = await extractTextFromFile(file);
         if (!String(text || '').trim()) {
@@ -1260,7 +1422,11 @@ async function analyzeSourceMaterials() {
     }
   }
 
-  if (allTenants.length) prefillRentRoll(allTenants);
+  if (allTenants.length) {
+    prefillRentRoll(allTenants);
+    console.log('All extracted tenant objects:', allTenants);
+  }
+
   renderRentRollOutput(gatherAssumptions());
 
   const failMsg = failed.length ? ` Failed: ${failed.slice(0, 5).join(', ')}${failed.length > 5 ? '...' : ''}.` : '';
@@ -1346,6 +1512,10 @@ document.addEventListener("keydown", (e) => {
   e.preventDefault();
   target.blur();
 });
+
+if (typeof window !== "undefined" && window.pdfjsLib && window.pdfjsLib.GlobalWorkerOptions) {
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.js";
+}
 
 initForm();
 renderRentRollOutput(gatherAssumptions());
