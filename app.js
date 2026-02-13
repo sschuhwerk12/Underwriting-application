@@ -661,6 +661,13 @@ function xnpv(cashflows, dates, rate) {
   }, 0);
 }
 
+function equityMultipleFromSeries(series) {
+  const positives = series.reduce((sum, v) => sum + (v > 0 ? v : 0), 0);
+  const negatives = series.reduce((sum, v) => sum + (v < 0 ? v : 0), 0);
+  const denom = Math.abs(negatives);
+  return denom > 0 ? (positives / denom) : 0;
+}
+
 function xirr(cashflows, dates) {
   if (!cashflows.length || cashflows.length !== dates.length) return 0;
   const hasPositive = cashflows.some((cf) => cf > 0);
@@ -946,8 +953,8 @@ function runModel(a) {
     metrics: {
       unleveredIrr: xirr(unlevSeries, irrDates),
       leveredIrr: xirr(levSeries, irrDates),
-      unleveredEqMult: unlevSeries.slice(1).reduce((s, x) => s + x, 0) / -unlevSeries[0],
-      leveredEqMult: levSeries.slice(1).reduce((s, x) => s + x, 0) / -levSeries[0],
+      unleveredEqMult: equityMultipleFromSeries(unlevSeries),
+      leveredEqMult: equityMultipleFromSeries(levSeries),
       leveredProfit: levSeries.reduce((s, x) => s + x, 0),
       totalHoldCosts: a.closingCosts + monthly.reduce((s, r) => s + r.leasingCosts + r.capex + r.reserves, 0),
       terminalValue: terminal,

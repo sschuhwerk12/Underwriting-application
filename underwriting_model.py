@@ -42,6 +42,13 @@ def _xnpv(cashflows: list[float], dates: list[str], rate: float) -> float:
     return total
 
 
+def _equity_multiple_from_series(series: list[float]) -> float:
+    positives = sum(v for v in series if v > 0)
+    negatives = sum(v for v in series if v < 0)
+    denom = abs(negatives)
+    return (positives / denom) if denom > 0 else 0.0
+
+
 def _xirr(cashflows: list[float], dates: list[str]) -> float:
     if not cashflows or len(cashflows) != len(dates):
         return 0.0
@@ -165,8 +172,8 @@ def run_model(assumptions: dict[str, Any]) -> dict[str, Any]:
     metrics = Metrics(
         unlevered_irr=_xirr(unlevered_series, irr_dates),
         levered_irr=_xirr(levered_series, irr_dates),
-        unlevered_equity_multiple=(sum(unlevered_series[1:]) / -unlevered_series[0]) if unlevered_series[0] != 0 else 0.0,
-        levered_equity_multiple=(sum(levered_series[1:]) / -levered_series[0]) if levered_series[0] != 0 else 0.0,
+        unlevered_equity_multiple=_equity_multiple_from_series(unlevered_series),
+        levered_equity_multiple=_equity_multiple_from_series(levered_series),
         levered_profit=sum(levered_series),
         terminal_value=terminal_value,
         total_hold_costs=closing_costs + sum(r["leasing_costs"] + r["capex"] + r["reserves"] for r in monthly),
