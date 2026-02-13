@@ -1320,16 +1320,15 @@ function escapeXml(value) {
 
 function workbookStylesXml() {
   return `<Styles>
-    <Style ss:ID="Default" ss:Name="Normal"><Alignment ss:Vertical="Center"/><Borders/><Font ss:FontName="Calibri" ss:Size="9" ss:Color="#000000"/><Interior ss:Color="#FFFFFF" ss:Pattern="Solid"/><NumberFormat/><Protection/></Style>
-    <Style ss:ID="TopHdrLabel"><Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1" ss:Color="#000000"/><Interior ss:Color="#D1D5DB" ss:Pattern="Solid"/><Alignment ss:Horizontal="Left" ss:Vertical="Center"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#B5BECF"/></Borders></Style>
-    <Style ss:ID="TopHdrVal"><Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1" ss:Color="#000000"/><Interior ss:Color="#E5E7EB" ss:Pattern="Solid"/><Alignment ss:Horizontal="Center" ss:Vertical="Center"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#B5BECF"/></Borders></Style>
-    <Style ss:ID="DateHdrLabel"><Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1" ss:Color="#000000"/><Interior ss:Color="#D1D5DB" ss:Pattern="Solid"/><Alignment ss:Horizontal="Left" ss:Vertical="Center"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#B5BECF"/></Borders></Style>
-    <Style ss:ID="DateHdrVal"><Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1" ss:Color="#0F1F3D"/><Interior ss:Color="#FFFFFF" ss:Pattern="Solid"/><Alignment ss:Horizontal="Center" ss:Vertical="Center"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#B5BECF"/></Borders><NumberFormat ss:Format="mm/dd/yyyy"/></Style>
-    <Style ss:ID="Label"><Font ss:FontName="Calibri" ss:Size="9" ss:Color="#000000"/><Interior ss:Color="#F3F4F6" ss:Pattern="Solid"/><Alignment ss:Horizontal="Left" ss:Vertical="Center"/></Style>
-    <Style ss:ID="Currency"><Font ss:FontName="Calibri" ss:Size="9" ss:Color="#000000"/><Interior ss:Color="#FFFFFF" ss:Pattern="Solid"/><Alignment ss:Horizontal="Right" ss:Vertical="Center"/><NumberFormat ss:Format="\&quot;$\&quot;#,##0.00_);[Red](\&quot;$\&quot;#,##0.00)"/></Style>
+    <Style ss:ID="Default" ss:Name="Normal"><Alignment ss:Vertical="Center"/><Borders/><Font ss:FontName="Calibri" ss:Size="9"/><Interior/><NumberFormat/><Protection/></Style>
+    <Style ss:ID="Hdr"><Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#0F1F3D" ss:Pattern="Solid"/><Alignment ss:Horizontal="Center" ss:Vertical="Center"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1"/></Borders></Style>
+    <Style ss:ID="Label"><Font ss:FontName="Calibri" ss:Size="9"/><Alignment ss:Horizontal="Left" ss:Vertical="Center"/></Style>
+    <Style ss:ID="Val"><Font ss:FontName="Calibri" ss:Size="9"/><Alignment ss:Horizontal="Right" ss:Vertical="Center"/></Style>
+    <Style ss:ID="Currency"><Font ss:FontName="Calibri" ss:Size="9"/><Alignment ss:Horizontal="Right" ss:Vertical="Center"/><NumberFormat ss:Format="\&quot;$\&quot;#,##0.00_);[Red](\&quot;$\&quot;#,##0.00)"/></Style>
+    <Style ss:ID="Date"><Font ss:FontName="Calibri" ss:Size="9"/><Alignment ss:Horizontal="Center" ss:Vertical="Center"/><NumberFormat ss:Format="mm/dd/yyyy"/></Style>
     <Style ss:ID="Section"><Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#0F1F3D" ss:Pattern="Solid"/><Alignment ss:Horizontal="Left" ss:Vertical="Center"/></Style>
-    <Style ss:ID="SubtotalLabel"><Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1" ss:Color="#000000"/><Interior ss:Color="#F3F4F6" ss:Pattern="Solid"/><Alignment ss:Horizontal="Left" ss:Vertical="Center"/><Borders><Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#6F95D9"/></Borders></Style>
-    <Style ss:ID="SubtotalCurrency"><Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1" ss:Color="#000000"/><Interior ss:Color="#FFFFFF" ss:Pattern="Solid"/><Alignment ss:Horizontal="Right" ss:Vertical="Center"/><Borders><Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#6F95D9"/></Borders><NumberFormat ss:Format="\&quot;$\&quot;#,##0.00_);[Red](\&quot;$\&quot;#,##0.00)"/></Style>
+    <Style ss:ID="SubtotalLabel"><Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1"/><Alignment ss:Horizontal="Left" ss:Vertical="Center"/><Borders><Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#6F95D9"/></Borders></Style>
+    <Style ss:ID="SubtotalCurrency"><Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1"/><Alignment ss:Horizontal="Right" ss:Vertical="Center"/><Borders><Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#6F95D9"/></Borders><NumberFormat ss:Format="\&quot;$\&quot;#,##0.00_);[Red](\&quot;$\&quot;#,##0.00)"/></Style>
   </Styles>`;
 }
 
@@ -1350,14 +1349,14 @@ function statementWorksheetXml(result, sheetName, periodSeries) {
   const colDefs = ['<Column ss:Width="260"/>', ...periodSeries.map(() => '<Column ss:Width="96"/>')].join('');
   const rowXml = [];
 
-  const monthCells = [`<Cell ss:StyleID="TopHdrLabel"><Data ss:Type="String">Month</Data></Cell>`];
-  periodSeries.forEach((p) => monthCells.push(`<Cell ss:StyleID="TopHdrVal"><Data ss:Type="Number">${Number(p.periodIndex ?? p.period ?? 0)}</Data></Cell>`));
+  const monthCells = [`<Cell ss:StyleID="Hdr"><Data ss:Type="String">Month</Data></Cell>`];
+  periodSeries.forEach((p) => monthCells.push(`<Cell ss:StyleID="Hdr"><Data ss:Type="Number">${Number(p.periodIndex ?? p.period ?? 0)}</Data></Cell>`));
   rowXml.push(`<Row ss:AutoFitHeight="0" ss:Height="20">${monthCells.join('')}</Row>`);
 
-  const dateCells = [`<Cell ss:StyleID="DateHdrLabel"><Data ss:Type="String">Date</Data></Cell>`];
+  const dateCells = [`<Cell ss:StyleID="Hdr"><Data ss:Type="String">Date</Data></Cell>`];
   periodSeries.forEach((p) => {
     const iso = p.excelDate || result.assumptions.acquisitionDate;
-    dateCells.push(`<Cell ss:StyleID="DateHdrVal"><Data ss:Type="DateTime">${iso}T00:00:00.000</Data></Cell>`);
+    dateCells.push(`<Cell ss:StyleID="Date"><Data ss:Type="DateTime">${iso}T00:00:00.000</Data></Cell>`);
   });
   rowXml.push(`<Row ss:AutoFitHeight="0" ss:Height="20">${dateCells.join('')}</Row>`);
 
