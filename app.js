@@ -475,28 +475,55 @@ function gatherAssumptions() {
   };
 }
 
-function npv(cashflows, rate) {
-  return cashflows.reduce((sum, cf, t) => sum + cf / ((1 + rate) ** t), 0);
+function daysBetween(startDate, endDate) {
+  const msPerDay = 24 * 60 * 60 * 1000;
+  return (endDate.getTime() - startDate.getTime()) / msPerDay;
 }
-function irr(series) {
+
+function xnpv(cashflows, dates, rate) {
+  const baseDate = new Date(dates[0]);
+  if (Number.isNaN(baseDate.getTime())) return 0;
+  return cashflows.reduce((sum, cf, i) => {
+    const d = new Date(dates[i]);
+    if (Number.isNaN(d.getTime())) return sum;
+    const years = daysBetween(baseDate, d) / 365;
+    return sum + (cf / ((1 + rate) ** years));
+  }, 0);
+}
+
+function xirr(cashflows, dates) {
+  if (!cashflows.length || cashflows.length !== dates.length) return 0;
+  const hasPositive = cashflows.some((cf) => cf > 0);
+  const hasNegative = cashflows.some((cf) => cf < 0);
+  if (!hasPositive || !hasNegative) return 0;
+
   let low = -0.95;
   let high = 2.0;
-  let fLow = npv(series, low);
-  let fHigh = npv(series, high);
+  let fLow = xnpv(cashflows, dates, low);
+  let fHigh = xnpv(cashflows, dates, high);
   let tries = 0;
-  while (fLow * fHigh > 0 && tries < 20) {
+
+  while (fLow * fHigh > 0 && tries < 30) {
     high += 1;
-    fHigh = npv(series, high);
+    fHigh = xnpv(cashflows, dates, high);
     tries += 1;
   }
+
   if (fLow * fHigh > 0) return 0;
-  for (let i = 0; i < 120; i++) {
+
+  for (let i = 0; i < 140; i++) {
     const mid = (low + high) / 2;
-    const fMid = npv(series, mid);
+    const fMid = xnpv(cashflows, dates, mid);
     if (Math.abs(fMid) < 1e-8) return mid;
-    if (fLow * fMid < 0) high = mid;
-    else low = mid;
+    if (fLow * fMid < 0) {
+      high = mid;
+      fHigh = fMid;
+    } else {
+      low = mid;
+      fLow = fMid;
+    }
   }
+
   return (low + high) / 2;
 }
 
@@ -729,6 +756,7 @@ function runModel(a) {
 
   const unlevSeries = [-initialOutflow, ...monthly.map((r) => r.unleveredCF)];
   const levSeries = [-netEquityOutflow, ...monthly.map((r) => r.leveredCF)];
+  const irrDates = [a.acquisitionDate, ...monthly.map((r) => addMonths(a.acquisitionDate, r.month))];
 
   const annual = [];
   for (let y = 0; y < a.holdMonths / 12; y++) {
@@ -746,8 +774,8 @@ function runModel(a) {
     monthly,
     annual,
     metrics: {
-      unleveredIrr: irr(unlevSeries),
-      leveredIrr: irr(levSeries),
+      unleveredIrr: xirr(unlevSeries, irrDates),
+      leveredIrr: xirr(levSeries, irrDates),
       unleveredEqMult: unlevSeries.slice(1).reduce((s, x) => s + x, 0) / -unlevSeries[0],
       leveredEqMult: levSeries.slice(1).reduce((s, x) => s + x, 0) / -levSeries[0],
       leveredProfit: levSeries.reduce((s, x) => s + x, 0),

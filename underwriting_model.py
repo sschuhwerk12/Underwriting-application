@@ -6,6 +6,8 @@ from __future__ import annotations
 import argparse
 import json
 from dataclasses import dataclass
+from datetime import date
+import calendar
 from pathlib import Path
 from typing import Any
 
@@ -21,30 +23,47 @@ class Metrics:
     total_hold_costs: float
 
 
-def _npv(cashflows: list[float], rate: float) -> float:
+def _add_months(iso_date: str, months: int) -> str:
+    y, m, d = (int(x) for x in iso_date.split("-"))
+    m = m - 1 + months
+    y += m // 12
+    m = m % 12 + 1
+    d = min(d, calendar.monthrange(y, m)[1])
+    return f"{y:04d}-{m:02d}-{d:02d}"
+
+
+def _xnpv(cashflows: list[float], dates: list[str], rate: float) -> float:
+    base = date.fromisoformat(dates[0])
     total = 0.0
-    for t, cf in enumerate(cashflows):
-        total += cf / ((1.0 + rate) ** t)
+    for cf, dt in zip(cashflows, dates):
+        d = date.fromisoformat(dt)
+        years = (d - base).days / 365.0
+        total += cf / ((1.0 + rate) ** years)
     return total
 
 
-def _irr(cashflows: list[float]) -> float:
+def _xirr(cashflows: list[float], dates: list[str]) -> float:
+    if not cashflows or len(cashflows) != len(dates):
+        return 0.0
+    if not any(cf > 0 for cf in cashflows) or not any(cf < 0 for cf in cashflows):
+        return 0.0
+
     low, high = -0.95, 1.5
-    f_low = _npv(cashflows, low)
-    f_high = _npv(cashflows, high)
+    f_low = _xnpv(cashflows, dates, low)
+    f_high = _xnpv(cashflows, dates, high)
 
     expand_steps = 0
-    while f_low * f_high > 0 and expand_steps < 20:
+    while f_low * f_high > 0 and expand_steps < 30:
         high += 1.0
-        f_high = _npv(cashflows, high)
+        f_high = _xnpv(cashflows, dates, high)
         expand_steps += 1
 
     if f_low * f_high > 0:
         return 0.0
 
-    for _ in range(120):
+    for _ in range(140):
         mid = (low + high) / 2
-        f_mid = _npv(cashflows, mid)
+        f_mid = _xnpv(cashflows, dates, mid)
         if abs(f_mid) < 1e-8:
             return mid
         if f_low * f_mid < 0:
@@ -141,10 +160,11 @@ def run_model(assumptions: dict[str, Any]) -> dict[str, Any]:
     levered_entry = -(purchase_price + closing_costs - initial_loan * (1.0 - orig_fee))
     levered_series = [levered_entry] + [r["levered_cf"] for r in monthly]
     levered_series[-1] += net_sale - loan_balance
+    irr_dates = [assumptions["acquisitionDate"]] + [_add_months(assumptions["acquisitionDate"], r["month"]) for r in monthly]
 
     metrics = Metrics(
-        unlevered_irr=_irr(unlevered_series),
-        levered_irr=_irr(levered_series),
+        unlevered_irr=_xirr(unlevered_series, irr_dates),
+        levered_irr=_xirr(levered_series, irr_dates),
         unlevered_equity_multiple=(sum(unlevered_series[1:]) / -unlevered_series[0]) if unlevered_series[0] != 0 else 0.0,
         levered_equity_multiple=(sum(levered_series[1:]) / -levered_series[0]) if levered_series[0] != 0 else 0.0,
         levered_profit=sum(levered_series),
