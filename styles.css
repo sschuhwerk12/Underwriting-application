@@ -159,3 +159,10 @@ pre {
 .statement-subtotal { border-top: 2px solid #6f95d9; font-weight: 600; }
 
 .readonly-input { background:#f3f6fb; color:#42526e; }
+
+
+.closing-costs-block { border:1px solid var(--line); border-radius:10px; padding:0.6rem; background:#fafcff; margin-top:0.4rem; display:grid; gap:0.45rem; }
+.closing-costs-title { font-size:0.82rem; font-weight:700; color:var(--blue-900); }
+.closing-cost-line { display:grid; grid-template-columns: minmax(220px, 1fr) 200px; gap:0.5rem; align-items:end; }
+.closing-cost-output { border:1px solid var(--line); border-radius:8px; background:#f3f6fb; padding:0.52rem 0.55rem; text-align:right; font-size:0.84rem; font-weight:600; }
+.closing-cost-hint { font-size:0.73rem; color:var(--muted); align-self:center; }

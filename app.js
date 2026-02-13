@@ -27,7 +27,7 @@ const mainConfig = [
   ["grossSf", "Square Footage", 100000, "number"],
   ["purchasePrice", "Purchase Price ($)", 25000000, "currency"],
   ["closingCosts", "Closing Costs ($)", 750000, "currency"],
-  ];
+];
 
 const debtConfig = [
   ["loanOriginationDate", "Loan Origination Date", "2026-01-01", "date"],
@@ -130,6 +130,111 @@ function syncDateAndHoldDefaults() {
   setVal("refi_loanMaturityDate", dispositionDate);
 }
 
+
+function closingCostOutputCell(id) {
+  return `<div class="closing-cost-output" id="${id}">$0.00</div>`;
+}
+
+function renderClosingCostBreakdown(main) {
+  const block = document.createElement("div");
+  block.className = "closing-costs-block";
+  block.innerHTML = `
+    <div class="closing-costs-title">Closing Cost Breakdown</div>
+    <div class="closing-cost-line">
+      <label>Legal Fees ($)
+        <input id="cc_legal" data-format="currency" data-raw="75000" type="text" value="${displayFormatted(75000, "currency")}" />
+      </label>
+      ${closingCostOutputCell("cc_legal_out")}
+    </div>
+    <div class="closing-cost-line">
+      <label>Due Diligence Fees ($)
+        <input id="cc_due_diligence" data-format="currency" data-raw="50000" type="text" value="${displayFormatted(50000, "currency")}" />
+      </label>
+      ${closingCostOutputCell("cc_due_diligence_out")}
+    </div>
+    <div class="closing-cost-line">
+      <label>Seyon Acquisition Fee (%)
+        <input id="cc_seyon_pct" data-format="percent" data-raw="0.01" type="text" value="${displayFormatted(0.01, "percent")}" />
+      </label>
+      ${closingCostOutputCell("cc_seyon_out")}
+    </div>
+    <div class="closing-cost-line">
+      <label>Broker Fee Type
+        <select id="cc_broker_type"><option value="percent" selected>% of Purchase Price</option><option value="amount">$ Amount</option></select>
+      </label>
+      <div></div>
+    </div>
+    <div class="closing-cost-line">
+      <label>Broker Fee %
+        <input id="cc_broker_pct" data-format="percent" data-raw="0.01" type="text" value="${displayFormatted(0.01, "percent")}" />
+      </label>
+      ${closingCostOutputCell("cc_broker_out")}
+    </div>
+    <div class="closing-cost-line">
+      <label>Broker Fee $ Amount
+        <input id="cc_broker_amt" data-format="currency" data-raw="0" type="text" value="${displayFormatted(0, "currency")}" />
+      </label>
+      <div class="closing-cost-hint">Used when Broker Fee Type is $ Amount</div>
+    </div>
+    <div class="closing-cost-line">
+      <label>Transfer Taxes (%)
+        <input id="cc_transfer_pct" data-format="percent" data-raw="0.005" type="text" value="${displayFormatted(0.005, "percent")}" />
+      </label>
+      ${closingCostOutputCell("cc_transfer_out")}
+    </div>
+    <div class="closing-cost-line">
+      <label>Title Insurance ($)
+        <input id="cc_title" data-format="currency" data-raw="30000" type="text" value="${displayFormatted(30000, "currency")}" />
+      </label>
+      ${closingCostOutputCell("cc_title_out")}
+    </div>
+    <div class="closing-cost-line">
+      <label>Contingency ($)
+        <input id="cc_contingency" data-format="currency" data-raw="45000" type="text" value="${displayFormatted(45000, "currency")}" />
+      </label>
+      ${closingCostOutputCell("cc_contingency_out")}
+    </div>
+  `;
+  main.appendChild(block);
+  block.querySelectorAll("input[data-format]").forEach(bindFormattedInput);
+}
+
+function syncClosingCostsBreakdown() {
+  const purchasePrice = getVal("purchasePrice");
+  const legal = getVal("cc_legal");
+  const dd = getVal("cc_due_diligence");
+  const seyon = purchasePrice * getVal("cc_seyon_pct");
+  const brokerType = document.getElementById("cc_broker_type")?.value || "percent";
+  const brokerPct = getVal("cc_broker_pct");
+  const brokerAmt = getVal("cc_broker_amt");
+  const broker = brokerType === "percent" ? purchasePrice * brokerPct : brokerAmt;
+  const transfer = purchasePrice * getVal("cc_transfer_pct");
+  const title = getVal("cc_title");
+  const contingency = getVal("cc_contingency");
+
+  const brokerPctInput = document.getElementById("cc_broker_pct");
+  const brokerAmtInput = document.getElementById("cc_broker_amt");
+  if (brokerPctInput) brokerPctInput.disabled = brokerType !== "percent";
+  if (brokerAmtInput) brokerAmtInput.disabled = brokerType !== "amount";
+
+  const outputs = {
+    cc_legal_out: legal,
+    cc_due_diligence_out: dd,
+    cc_seyon_out: seyon,
+    cc_broker_out: broker,
+    cc_transfer_out: transfer,
+    cc_title_out: title,
+    cc_contingency_out: contingency,
+  };
+  Object.entries(outputs).forEach(([id, value]) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = formatCurrencySmart(value);
+  });
+
+  const total = legal + dd + seyon + broker + transfer + title + contingency;
+  setVal("closingCosts", total);
+}
+
 function initGrowthInputs() {
   const c = document.getElementById("growthInputs");
   c.innerHTML = "";
@@ -176,6 +281,14 @@ function initForm() {
     holdYearsEl.classList.add("readonly-input");
   }
 
+  const closingCostsEl = document.getElementById("closingCosts");
+  if (closingCostsEl) {
+    closingCostsEl.readOnly = true;
+    closingCostsEl.classList.add("readonly-input");
+  }
+
+  renderClosingCostBreakdown(main);
+
   const debt = document.getElementById("debtInputs");
   debtConfig.forEach(([id, label, value, formatType]) => addLabeledInput(debt, id, label, value, formatType));
   const rateIndex = document.createElement("label");
@@ -196,8 +309,17 @@ function initForm() {
 
   const acquisitionInput = document.getElementById("acquisitionDate");
   const holdMonthsInput = document.getElementById("holdMonths");
+  const purchasePriceInput = document.getElementById("purchasePrice");
   acquisitionInput?.addEventListener("change", syncDateAndHoldDefaults);
   holdMonthsInput?.addEventListener("blur", syncDateAndHoldDefaults);
+  purchasePriceInput?.addEventListener("blur", syncClosingCostsBreakdown);
+
+  ["cc_legal", "cc_due_diligence", "cc_seyon_pct", "cc_broker_pct", "cc_broker_amt", "cc_transfer_pct", "cc_title", "cc_contingency"].forEach((id) => {
+    const el = document.getElementById(id);
+    el?.addEventListener("blur", syncClosingCostsBreakdown);
+  });
+  document.getElementById("cc_broker_type")?.addEventListener("change", syncClosingCostsBreakdown);
+  syncClosingCostsBreakdown();
 
   initGrowthInputs();
   addMla();
@@ -494,6 +616,20 @@ function gatherAssumptions() {
     grossSf: getVal("grossSf"),
     purchasePrice: getVal("purchasePrice"),
     closingCosts: getVal("closingCosts"),
+    closingCostBreakdown: {
+      legalFees: getVal("cc_legal"),
+      dueDiligenceFees: getVal("cc_due_diligence"),
+      seyonAcquisitionFeePct: getVal("cc_seyon_pct"),
+      seyonAcquisitionFeeAmount: (getVal("purchasePrice") * getVal("cc_seyon_pct")),
+      brokerFeeType: document.getElementById("cc_broker_type")?.value || "percent",
+      brokerFeePct: getVal("cc_broker_pct"),
+      brokerFeeAmountInput: getVal("cc_broker_amt"),
+      brokerFeeAmount: (document.getElementById("cc_broker_type")?.value === "percent" ? getVal("purchasePrice") * getVal("cc_broker_pct") : getVal("cc_broker_amt")),
+      transferTaxesPct: getVal("cc_transfer_pct"),
+      transferTaxesAmount: (getVal("purchasePrice") * getVal("cc_transfer_pct")),
+      titleInsurance: getVal("cc_title"),
+      contingency: getVal("cc_contingency"),
+    },
     exitCapRate: getVal("exitCapRate"),
     saleCostPct: getVal("saleCostPct"),
     reservesMonthly: getVal("reservesMonthly"),
@@ -523,6 +659,13 @@ function xnpv(cashflows, dates, rate) {
     const years = daysBetween(baseDate, d) / 365;
     return sum + (cf / ((1 + rate) ** years));
   }, 0);
+}
+
+function equityMultipleFromSeries(series) {
+  const positives = series.reduce((sum, v) => sum + (v > 0 ? v : 0), 0);
+  const negatives = series.reduce((sum, v) => sum + (v < 0 ? v : 0), 0);
+  const denom = Math.abs(negatives);
+  return denom > 0 ? (positives / denom) : 0;
 }
 
 function xirr(cashflows, dates) {
@@ -810,8 +953,8 @@ function runModel(a) {
     metrics: {
       unleveredIrr: xirr(unlevSeries, irrDates),
       leveredIrr: xirr(levSeries, irrDates),
-      unleveredEqMult: unlevSeries.slice(1).reduce((s, x) => s + x, 0) / -unlevSeries[0],
-      leveredEqMult: levSeries.slice(1).reduce((s, x) => s + x, 0) / -levSeries[0],
+      unleveredEqMult: equityMultipleFromSeries(unlevSeries),
+      leveredEqMult: equityMultipleFromSeries(levSeries),
       leveredProfit: levSeries.reduce((s, x) => s + x, 0),
       totalHoldCosts: a.closingCosts + monthly.reduce((s, r) => s + r.leasingCosts + r.capex + r.reserves, 0),
       terminalValue: terminal,
@@ -1424,11 +1567,11 @@ function applyPrefillFromText(rawText) {
   if (jsonObj && typeof jsonObj === "object") {
     if (Array.isArray(jsonObj.tenants) && jsonObj.tenants.length) prefillRentRoll(jsonObj.tenants);
     if (typeof jsonObj.purchasePrice === "number") setVal("purchasePrice", jsonObj.purchasePrice);
-    if (typeof jsonObj.closingCosts === "number") setVal("closingCosts", jsonObj.closingCosts);
     if (typeof jsonObj.grossSf === "number") setVal("grossSf", jsonObj.grossSf);
     if (typeof jsonObj.exitCapRate === "number") setVal("exitCapRate", jsonObj.exitCapRate);
   }
 
+  syncClosingCostsBreakdown();
   return updates;
 }
 
@@ -1471,6 +1614,7 @@ function applyPrefillFromObject(obj) {
   });
   if (typeof obj.exitCapRate === 'number') { setVal('exitCapRate', obj.exitCapRate); updates += 1; }
   if (typeof obj.exit_cap_rate === 'number') { setVal('exitCapRate', obj.exit_cap_rate); updates += 1; }
+  syncClosingCostsBreakdown();
   const tenants = Array.isArray(obj.tenants) ? obj.tenants : [];
   return { updates, tenants };
 }
