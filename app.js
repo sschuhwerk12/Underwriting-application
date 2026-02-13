@@ -906,6 +906,7 @@ function buildCashFlowSeries(result) {
       period: 0,
       periodIndex: 0,
       label: formatMonthYear(endOfMonth(result.assumptions.acquisitionDate, 0)),
+      excelDate: endOfMonth(result.assumptions.acquisitionDate, 0)?.toISOString().slice(0, 10),
       periodsPerYear: 12,
       purchasePrice,
       acquisitionClosingCosts,
@@ -921,6 +922,7 @@ function buildCashFlowSeries(result) {
       period: r.month,
       periodIndex: r.month,
       label: formatMonthYear(endOfMonth(result.assumptions.acquisitionDate, r.month)),
+      excelDate: endOfMonth(result.assumptions.acquisitionDate, r.month)?.toISOString().slice(0, 10),
       periodsPerYear: 12,
     })),
   ];
@@ -930,6 +932,7 @@ function buildCashFlowSeries(result) {
       period: 0,
       periodIndex: 0,
       label: formatMonthYear(endOfMonth(result.assumptions.acquisitionDate, 0)),
+      excelDate: endOfMonth(result.assumptions.acquisitionDate, 0)?.toISOString().slice(0, 10),
       periodsPerYear: 1,
       purchasePrice,
       acquisitionClosingCosts,
@@ -945,7 +948,7 @@ function buildCashFlowSeries(result) {
   const years = Math.floor(result.assumptions.holdMonths / 12);
   for (let y = 1; y <= years; y++) {
     const slice = result.monthly.slice((y - 1) * 12, y * 12);
-    const agg = { period: y, periodIndex: y * 12, label: formatMonthYear(endOfMonth(result.assumptions.acquisitionDate, y * 12 - 1)), periodsPerYear: 1 };
+    const agg = { period: y, periodIndex: y * 12, label: formatMonthYear(endOfMonth(result.assumptions.acquisitionDate, y * 12 - 1)), excelDate: endOfMonth(result.assumptions.acquisitionDate, y * 12 - 1)?.toISOString().slice(0, 10), periodsPerYear: 1 };
     const keys = [
       'potentialBaseRent', 'absorptionTurnoverVacancy', 'freeRent', 'scheduledBaseRent', 'expenseRecoveries', 'opexExpense', 'noi',
       'tiCosts', 'lcCosts', 'leasingCosts', 'capex', 'reserves', 'totalCapitalExpenditures', 'unlevered', 'grossSaleProceeds',
@@ -1167,16 +1170,78 @@ function xmlWorksheet(name, rows) {
 }
 
 
+
+function escapeXml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[ch]));
+}
+
+function workbookStylesXml() {
+  return `<Styles>
+    <Style ss:ID="Default" ss:Name="Normal"><Alignment ss:Vertical="Center"/><Borders/><Font ss:FontName="Calibri" ss:Size="9" ss:Color="#000000"/><Interior ss:Color="#FFFFFF" ss:Pattern="Solid"/><NumberFormat/><Protection/></Style>
+    <Style ss:ID="TopHdrLabel"><Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1" ss:Color="#000000"/><Interior ss:Color="#D1D5DB" ss:Pattern="Solid"/><Alignment ss:Horizontal="Left" ss:Vertical="Center"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#B5BECF"/></Borders></Style>
+    <Style ss:ID="TopHdrVal"><Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1" ss:Color="#000000"/><Interior ss:Color="#E5E7EB" ss:Pattern="Solid"/><Alignment ss:Horizontal="Center" ss:Vertical="Center"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#B5BECF"/></Borders></Style>
+    <Style ss:ID="DateHdrLabel"><Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1" ss:Color="#000000"/><Interior ss:Color="#D1D5DB" ss:Pattern="Solid"/><Alignment ss:Horizontal="Left" ss:Vertical="Center"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#B5BECF"/></Borders></Style>
+    <Style ss:ID="DateHdrVal"><Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1" ss:Color="#0F1F3D"/><Interior ss:Color="#FFFFFF" ss:Pattern="Solid"/><Alignment ss:Horizontal="Center" ss:Vertical="Center"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#B5BECF"/></Borders><NumberFormat ss:Format="mm/dd/yyyy"/></Style>
+    <Style ss:ID="Label"><Font ss:FontName="Calibri" ss:Size="9" ss:Color="#000000"/><Interior ss:Color="#F3F4F6" ss:Pattern="Solid"/><Alignment ss:Horizontal="Left" ss:Vertical="Center"/></Style>
+    <Style ss:ID="Currency"><Font ss:FontName="Calibri" ss:Size="9" ss:Color="#000000"/><Interior ss:Color="#FFFFFF" ss:Pattern="Solid"/><Alignment ss:Horizontal="Right" ss:Vertical="Center"/><NumberFormat ss:Format="\&quot;$\&quot;#,##0.00_);[Red](\&quot;$\&quot;#,##0.00)"/></Style>
+    <Style ss:ID="Section"><Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#0F1F3D" ss:Pattern="Solid"/><Alignment ss:Horizontal="Left" ss:Vertical="Center"/></Style>
+    <Style ss:ID="SubtotalLabel"><Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1" ss:Color="#000000"/><Interior ss:Color="#F3F4F6" ss:Pattern="Solid"/><Alignment ss:Horizontal="Left" ss:Vertical="Center"/><Borders><Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#6F95D9"/></Borders></Style>
+    <Style ss:ID="SubtotalCurrency"><Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1" ss:Color="#000000"/><Interior ss:Color="#FFFFFF" ss:Pattern="Solid"/><Alignment ss:Horizontal="Right" ss:Vertical="Center"/><Borders><Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#6F95D9"/></Borders><NumberFormat ss:Format="\&quot;$\&quot;#,##0.00_);[Red](\&quot;$\&quot;#,##0.00)"/></Style>
+  </Styles>`;
+}
+
+function statementWorksheetXml(result, sheetName, periodSeries) {
+  const lineDefs = getCashFlowLineDefs(result);
+  const getLineValue = (row, def, periodsPerYear) => {
+    if (def.formula) return def.formula(row);
+    if (def.opexLineName) {
+      if (row.period === 0) return 0;
+      const line = result.assumptions.opexLines.find((o) => o.name === def.opexLineName);
+      if (!line) return 0;
+      const annual = line.amountType === '$/SF/Year' ? line.amount * result.assumptions.grossSf : line.amount;
+      return (def.sign || 1) * (annual / periodsPerYear);
+    }
+    return (def.sign || 1) * (row[def.key] || 0);
+  };
+
+  const colDefs = ['<Column ss:Width="260"/>', ...periodSeries.map(() => '<Column ss:Width="96"/>')].join('');
+  const rowXml = [];
+
+  const monthCells = [`<Cell ss:StyleID="TopHdrLabel"><Data ss:Type="String">Month</Data></Cell>`];
+  periodSeries.forEach((p) => monthCells.push(`<Cell ss:StyleID="TopHdrVal"><Data ss:Type="Number">${Number(p.periodIndex ?? p.period ?? 0)}</Data></Cell>`));
+  rowXml.push(`<Row ss:AutoFitHeight="0" ss:Height="20">${monthCells.join('')}</Row>`);
+
+  const dateCells = [`<Cell ss:StyleID="DateHdrLabel"><Data ss:Type="String">Date</Data></Cell>`];
+  periodSeries.forEach((p) => {
+    const iso = p.excelDate || result.assumptions.acquisitionDate;
+    dateCells.push(`<Cell ss:StyleID="DateHdrVal"><Data ss:Type="DateTime">${iso}T00:00:00.000</Data></Cell>`);
+  });
+  rowXml.push(`<Row ss:AutoFitHeight="0" ss:Height="20">${dateCells.join('')}</Row>`);
+
+  lineDefs.forEach((def) => {
+    if (def.section) {
+      const cells = [`<Cell ss:StyleID="Section"><Data ss:Type="String">${escapeXml(def.section)}</Data></Cell>`, ...periodSeries.map(() => '<Cell ss:StyleID="Section"><Data ss:Type="String"></Data></Cell>')];
+      rowXml.push(`<Row>${cells.join('')}</Row>`);
+      return;
+    }
+
+    const labelStyle = def.subtotal ? 'SubtotalLabel' : 'Label';
+    const valStyle = def.subtotal ? 'SubtotalCurrency' : 'Currency';
+    const cells = [`<Cell ss:StyleID="${labelStyle}"><Data ss:Type="String">${escapeXml(def.label)}</Data></Cell>`];
+    periodSeries.forEach((p) => cells.push(`<Cell ss:StyleID="${valStyle}"><Data ss:Type="Number">${Number(getLineValue(p, def, p.periodsPerYear || 12) || 0)}</Data></Cell>`));
+    rowXml.push(`<Row>${cells.join('')}</Row>`);
+  });
+
+  return `<Worksheet ss:Name="${sheetName}"><Table>${colDefs}${rowXml.join('')}</Table></Worksheet>`;
+}
+
 function exportCashFlowExcel(result) {
   const { monthSeries, annualSeries } = buildCashFlowSeries(result);
   const worksheets = [
-    xmlWorksheet("MonthlyStatement", buildStatementRowsForExport(result, monthSeries)),
-    xmlWorksheet("AnnualStatement", buildStatementRowsForExport(result, annualSeries)),
+    statementWorksheetXml(result, "MonthlyStatement", monthSeries),
+    statementWorksheetXml(result, "AnnualStatement", annualSeries),
   ];
-  const xml = `<?xml version="1.0"?>
-<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
-${worksheets.join("\n")}
-</Workbook>`;
+  const xml = `<?xml version="1.0"?>\n<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">\n${workbookStylesXml()}\n${worksheets.join("\n")}\n</Workbook>`;
   download("cash_flow_statement.xls", xml, "application/vnd.ms-excel");
 }
 
