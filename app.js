@@ -611,22 +611,22 @@ function runModel(a) {
 
         potentialBaseRent += marketRent;
 
-        const applyScenario = (prob, downtime, freeRentMonths) => {
-          if (prob <= 0) return;
-          if (post <= downtime) {
-            absorptionTurnoverVacancy += marketRent * prob;
-          } else if (post <= downtime + freeRentMonths) {
-            freeRent += marketRent * prob;
-          } else {
-            scheduledBaseRent += marketRent * prob;
-            activeTenantSfMap[tenantKey] = (activeTenantSfMap[tenantKey] || 0) + (t.sf * prob);
-          }
-        };
+        const weightedDowntimeMonths = (newProb * (mla.downtimeMonths || 0));
+        const secondGenStartOffset = Math.max(0, Math.round(weightedDowntimeMonths));
+        const weightedFreeRentMonths = (renewProb * (mla.freeRentRenewal || 0)) + (newProb * (mla.freeRentNew || 0));
+        const weightedFreeRentDuration = Math.max(0, Math.round(weightedFreeRentMonths));
+        const secondGenStartPost = secondGenStartOffset + 1;
 
-        applyScenario(renewProb, 0, mla.freeRentRenewal || 0);
-        applyScenario(newProb, mla.downtimeMonths || 0, mla.freeRentNew || 0);
+        if (post < secondGenStartPost) {
+          absorptionTurnoverVacancy += marketRent;
+        } else if (post < secondGenStartPost + weightedFreeRentDuration) {
+          freeRent += marketRent;
+        } else {
+          scheduledBaseRent += marketRent;
+          activeTenantSfMap[tenantKey] = (activeTenantSfMap[tenantKey] || 0) + t.sf;
+        }
 
-        if (post === 1) {
+        if (post === secondGenStartPost) {
           const weightedTi = (renewProb * (mla.tiRenewal || 0)) + (newProb * (mla.tiNew || 0));
           const weightedLc = (renewProb * (mla.lcRenewal || 0)) + (newProb * (mla.lcNew || 0));
           tiCosts += t.sf * weightedTi;
