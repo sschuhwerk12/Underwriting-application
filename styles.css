@@ -157,3 +157,5 @@ pre {
 .statement-table th:first-child, .statement-table td:first-child { text-align: left; position: sticky; left: 0; background: #f7faff; z-index: 2; }
 .statement-section { background: #0f1f3d; color: #fff; font-weight: 600; }
 .statement-subtotal { border-top: 2px solid #6f95d9; font-weight: 600; }
+
+.readonly-input { background:#f3f6fb; color:#42526e; }

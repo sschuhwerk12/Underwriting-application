@@ -22,13 +22,16 @@ function formatCurrencySmart(value) {
 
 const mainConfig = [
   ["acquisitionDate", "Acquisition Date", "2026-01-01", "date"],
-  ["holdYears", "Hold Period (years)", 5, "number"],
+  ["holdMonths", "Hold Period (months)", 60, "number"],
+  ["holdYearsAuto", "Hold Period (years)", 5, "number"],
   ["grossSf", "Square Footage", 100000, "number"],
   ["purchasePrice", "Purchase Price ($)", 25000000, "currency"],
   ["closingCosts", "Closing Costs ($)", 750000, "currency"],
   ];
 
 const debtConfig = [
+  ["loanOriginationDate", "Loan Origination Date", "2026-01-01", "date"],
+  ["loanMaturityDate", "Loan Maturity Date", "2031-01-01", "date"],
   ["initialLtv", "Initial LTV", 0.60, "percent"],
   ["origFee", "Origination Fee", 0.01, "percent"],
   ["extensionFee", "Extension Fee", 0.005, "percent"],
@@ -113,6 +116,20 @@ function addLabeledInput(parent, id, label, value, formatType = "number") {
   parent.appendChild(wrapper);
 }
 
+
+function syncDateAndHoldDefaults() {
+  const acquisitionDate = getVal("acquisitionDate") || "2026-01-01";
+  const holdMonths = Math.max(1, Math.round(getVal("holdMonths") || 0));
+  setVal("holdMonths", holdMonths);
+  setVal("holdYearsAuto", holdMonths / 12);
+
+  const dispositionDate = addMonths(acquisitionDate, holdMonths);
+  setVal("loanOriginationDate", acquisitionDate);
+  setVal("loanMaturityDate", dispositionDate);
+  setVal("refi_loanOriginationDate", acquisitionDate);
+  setVal("refi_loanMaturityDate", dispositionDate);
+}
+
 function initGrowthInputs() {
   const c = document.getElementById("growthInputs");
   c.innerHTML = "";
@@ -153,6 +170,12 @@ function initForm() {
   const main = document.getElementById("mainInputs");
   mainConfig.forEach(([id, label, value, formatType]) => addLabeledInput(main, id, label, value, formatType));
 
+  const holdYearsEl = document.getElementById("holdYearsAuto");
+  if (holdYearsEl) {
+    holdYearsEl.readOnly = true;
+    holdYearsEl.classList.add("readonly-input");
+  }
+
   const debt = document.getElementById("debtInputs");
   debtConfig.forEach(([id, label, value, formatType]) => addLabeledInput(debt, id, label, value, formatType));
   const rateIndex = document.createElement("label");
@@ -168,6 +191,13 @@ function initForm() {
   const exit = document.getElementById("exitInputs");
   addLabeledInput(exit, "exitCapRate", "Exit Cap Rate", 0.065, "percent");
   addLabeledInput(exit, "saleCostPct", "Sale Cost (% of gross sale)", 0.01, "percent");
+
+  syncDateAndHoldDefaults();
+
+  const acquisitionInput = document.getElementById("acquisitionDate");
+  const holdMonthsInput = document.getElementById("holdMonths");
+  acquisitionInput?.addEventListener("change", syncDateAndHoldDefaults);
+  holdMonthsInput?.addEventListener("blur", syncDateAndHoldDefaults);
 
   initGrowthInputs();
   addMla();
@@ -349,7 +379,7 @@ function normalizeMonthlyRent(rentValue, rentType, sf) {
 
 function gatherAssumptions() {
   const acquisitionDate = getVal("acquisitionDate");
-  const holdMonths = Math.round(getVal("holdYears") * 12);
+  const holdMonths = Math.max(1, Math.round(getVal("holdMonths")));
   const saleDate = new Date(acquisitionDate);
   saleDate.setMonth(saleDate.getMonth() + holdMonths);
 
@@ -424,6 +454,8 @@ function gatherAssumptions() {
   }
 
   const debt = {
+    loanOriginationDate: getVal("loanOriginationDate"),
+    loanMaturityDate: getVal("loanMaturityDate"),
     initialLtv: getVal("initialLtv"),
     originationFee: getVal("origFee"),
     extensionFee: getVal("extensionFee"),
@@ -440,6 +472,8 @@ function gatherAssumptions() {
 
   const refi = document.getElementById("enableRefi").checked
     ? {
+        loanOriginationDate: getVal("refi_loanOriginationDate"),
+        loanMaturityDate: getVal("refi_loanMaturityDate"),
         initialLtv: getVal("refi_initialLtv"),
         originationFee: getVal("refi_origFee"),
         extensionFee: getVal("refi_extensionFee"),
@@ -859,7 +893,7 @@ function renderStatementTable(result, containerId, periodSeries) {
   document.getElementById(containerId).innerHTML = `<div class="statement-wrap"><table class="statement-table">${monthRow}${dateRow}${rows}</table></div>`;
 }
 
-function renderCashFlowStatement(result) {
+function buildCashFlowSeries(result) {
   const purchasePrice = result.assumptions.purchasePrice;
   const acquisitionClosingCosts = result.assumptions.closingCosts;
   const totalInvestmentCosts = purchasePrice + acquisitionClosingCosts;
@@ -923,6 +957,40 @@ function renderCashFlowStatement(result) {
     annualSeries.push(agg);
   }
 
+  return { monthSeries, annualSeries };
+}
+
+function buildStatementRowsForExport(result, periodSeries) {
+  const lineDefs = getCashFlowLineDefs(result);
+  const getLineValue = (row, def, periodsPerYear) => {
+    if (def.formula) return def.formula(row);
+    if (def.opexLineName) {
+      if (row.period === 0) return 0;
+      const line = result.assumptions.opexLines.find((o) => o.name === def.opexLineName);
+      if (!line) return 0;
+      const annual = line.amountType === '$/SF/Year' ? line.amount * result.assumptions.grossSf : line.amount;
+      return (def.sign || 1) * (annual / periodsPerYear);
+    }
+    return (def.sign || 1) * (row[def.key] || 0);
+  };
+
+  const rows = [];
+  rows.push(['Month', ...periodSeries.map((r) => r.periodIndex ?? r.period ?? '-')]);
+  rows.push(['Date', ...periodSeries.map((r) => r.label)]);
+
+  lineDefs.forEach((def) => {
+    if (def.section) {
+      rows.push([def.section, ...periodSeries.map(() => '')]);
+      return;
+    }
+    rows.push([def.label, ...periodSeries.map((r) => getLineValue(r, def, r.periodsPerYear || 12))]);
+  });
+
+  return rows;
+}
+
+function renderCashFlowStatement(result) {
+  const { monthSeries, annualSeries } = buildCashFlowSeries(result);
   renderStatementTable(result, 'cashFlowStatement', monthSeries);
   renderStatementTable(result, 'annualCashFlowStatement', annualSeries);
 }
@@ -1098,16 +1166,36 @@ function xmlWorksheet(name, rows) {
   return `<Worksheet ss:Name="${name}"><Table>${rows.map((r) => `<Row>${r.map((c) => `<Cell><Data ss:Type="String">${String(c).replace(/[&<>]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[ch]))}</Data></Cell>`).join("")}</Row>`).join("")}</Table></Worksheet>`;
 }
 
+
+function exportCashFlowExcel(result) {
+  const { monthSeries, annualSeries } = buildCashFlowSeries(result);
+  const worksheets = [
+    xmlWorksheet("MonthlyStatement", buildStatementRowsForExport(result, monthSeries)),
+    xmlWorksheet("AnnualStatement", buildStatementRowsForExport(result, annualSeries)),
+  ];
+  const xml = `<?xml version="1.0"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+${worksheets.join("\n")}
+</Workbook>`;
+  download("cash_flow_statement.xls", xml, "application/vnd.ms-excel");
+}
+
 function exportExcel(result, summaryOnly = false) {
   const sRows = [["Item", "Value"], ["Purchase Price", result.assumptions.purchasePrice], ["Closing Costs", result.assumptions.closingCosts], ["Total Hold Costs", result.metrics.totalHoldCosts], ["Unlevered IRR", result.metrics.unleveredIrr], ["Levered IRR", result.metrics.leveredIrr], ["Unlevered Equity Multiple", result.metrics.unleveredEqMult], ["Levered Equity Multiple", result.metrics.leveredEqMult], ["Levered Profit", result.metrics.leveredProfit], ["Terminal Value", result.metrics.terminalValue]];
   const worksheets = [xmlWorksheet("InvestmentSummary", sRows)];
   if (!summaryOnly) {
     worksheets.push(xmlWorksheet("Assumptions", Object.entries(result.assumptions).map(([k, v]) => [k, typeof v === "object" ? JSON.stringify(v) : v])));
     worksheets.push(xmlWorksheet("MonthlyCF", [["month", "date", "potentialBaseRent", "absorptionTurnoverVacancy", "freeRent", "scheduledBaseRent", "expenseRecoveries", "opexExpense", "netOpex", "noi", "tiCosts", "lcCosts", "leasingCosts", "capex", "reserves", "unlevered", "grossSaleProceeds", "saleClosingCosts", "netSaleProceeds", "debtPayoff", "unleveredCF", "debtBeginningBalance", "interestExpense", "principalAmortization", "debtService", "reimbursement", "debtEndingBalance", "levered", "leveredCF"], ...result.monthly.map((r) => [r.month, addMonths(result.assumptions.acquisitionDate, r.month), r.potentialBaseRent, r.absorptionTurnoverVacancy, r.freeRent, r.scheduledBaseRent, r.expenseRecoveries, r.opexExpense, r.netOpex, r.noi, r.tiCosts, r.lcCosts, r.leasingCosts, r.capex, r.reserves, r.unlevered, r.grossSaleProceeds, r.saleClosingCosts, r.netSaleProceeds, r.debtPayoff, r.unleveredCF, r.debtBeginningBalance, r.interestExpense, r.principalAmortization, r.debtService, r.reimbursement, r.debtEndingBalance, r.levered, r.leveredCF])]));
+    const { monthSeries, annualSeries } = buildCashFlowSeries(result);
+    worksheets.push(xmlWorksheet("MonthlyStatement", buildStatementRowsForExport(result, monthSeries)));
+    worksheets.push(xmlWorksheet("AnnualStatement", buildStatementRowsForExport(result, annualSeries)));
     worksheets.push(xmlWorksheet("RentRoll", [["name", "sf", "commencementDate", "expirationDate", "currentRentMonthlyPSF", "rentType", "mlaName", "rentSteps"], ...result.assumptions.tenants.map((t) => [t.name, t.sf, t.commencementDate, t.expirationDate, t.currentRent, t.rentType, t.mlaName, JSON.stringify(t.rentSteps || [])])]));
     worksheets.push(xmlWorksheet("OperatingExpenses", [["name", "amount", "amountType", "reimbursable", "reimbursingTenants"], ...result.assumptions.opexLines.map((x) => [x.name, x.amount, x.amountType, x.reimbursable, x.reimbursingTenants])]));
   }
-  const xml = `<?xml version="1.0"?>\n<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">\n${worksheets.join("\n")}\n</Workbook>`;
+  const xml = `<?xml version="1.0"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+${worksheets.join("\n")}
+</Workbook>`;
   download(summaryOnly ? "investment_summary.xls" : "underwriting_model_output.xls", xml, "application/vnd.ms-excel");
 }
 
@@ -1249,13 +1337,15 @@ function applyPrefillFromText(rawText) {
     ["closingCosts", [/(?:closing|acquisition)\s*costs?[^\d]{0,20}([\d,]+(?:\.\d+)?)/i]],
     ["grossSf", [/(?:gross|building|rentable)\s*(?:sf|square\s*feet|square\s*footage)[^\d]{0,20}([\d,]+(?:\.\d+)?)/i]],
     ["exitCapRate", [/exit\s*cap\s*rate[^\d]{0,20}([\d.]+)\s*%?/i]],
-    ["holdYears", [/hold\s*(?:period)?\s*(?:years|year|yr|yrs)[^\d]{0,20}([\d.]+)/i]],
+    ["holdMonths", [/hold\s*(?:period)?\s*(?:months|month|mo|mos)[^\d]{0,20}([\d.]+)/i]],
+    ["holdMonths", [/hold\s*(?:period)?\s*(?:years|year|yr|yrs)[^\d]{0,20}([\d.]+)/i]],
   ];
 
   mappings.forEach(([id, patterns]) => {
     const v = parseValueFromText(text, patterns);
     if (v == null) return;
-    const normalized = id === "exitCapRate" && v > 1 ? v / 100 : v;
+    let normalized = id === "exitCapRate" && v > 1 ? v / 100 : v;
+    if (id === "holdMonths" && /years|year|yr|yrs/i.test(patterns[0].source || "")) normalized = v * 12;
     setVal(id, normalized);
     updates.push(id);
   });
@@ -1304,12 +1394,15 @@ function applyPrefillFromObject(obj) {
     ['purchasePrice', ['purchasePrice', 'purchase_price', 'price']],
     ['closingCosts', ['closingCosts', 'closing_costs']],
     ['grossSf', ['grossSf', 'gross_sf', 'building_sf', 'square_footage']],
-    ['holdYears', ['holdYears', 'hold_years']],
+    ['holdMonths', ['holdMonths', 'hold_months']],
+    ['holdMonths', ['holdYears', 'hold_years']],
   ];
   numMap.forEach(([id, keys]) => {
     const key = keys.find((k) => typeof obj[k] === 'number');
     if (!key) return;
-    setVal(id, obj[key]);
+    const raw = obj[key];
+    const normalized = id === 'holdMonths' && /holdYears|hold_years/.test(key) ? raw * 12 : raw;
+    setVal(id, normalized);
     updates += 1;
   });
   if (typeof obj.exitCapRate === 'number') { setVal('exitCapRate', obj.exitCapRate); updates += 1; }
@@ -1715,6 +1808,7 @@ document.getElementById("runModel").onclick = () => {
 
 document.getElementById("exportSummaryExcel").onclick = () => state.lastResult && exportExcel(state.lastResult, true);
 document.getElementById("exportModelExcel").onclick = () => state.lastResult && exportExcel(state.lastResult, false);
+document.getElementById("exportCashFlowExcel").onclick = () => state.lastResult && exportCashFlowExcel(state.lastResult);
 document.getElementById("exportJson").onclick = () => download("assumptions.json", JSON.stringify(gatherAssumptions(), null, 2), "application/json");
 document.getElementById("exportReport").onclick = () => state.lastResult && download("investment_summary.md", generateReportText(state.lastResult), "text/markdown");
 
