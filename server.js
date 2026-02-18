@@ -4,8 +4,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { aiRouter } from './api/ai/routes.js';
+import { ingestRouter } from './api/ai/ingest/routes.js';
 import { apiRateLimiter } from './lib/security/rateLimiter.js';
-import { requireJsonBody, apiRouteProtection } from './lib/security/requestGuards.js';
+import { apiRouteProtection } from './lib/security/requestGuards.js';
 import { apiErrorHandler, notFoundHandler } from './lib/security/errorHandlers.js';
 
 const app = express();
@@ -17,7 +18,8 @@ app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: false }));
 
 app.use('/api', apiRateLimiter, apiRouteProtection);
-app.use('/api/ai', requireJsonBody, aiRouter);
+app.use('/api/ai/ingest', ingestRouter);
+app.use('/api/ai', aiRouter);
 
 app.use(express.static(__dirname));
 

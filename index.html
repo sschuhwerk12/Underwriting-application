@@ -6,6 +6,7 @@
   <title>Institutional Underwriting Platform</title>
   <link rel="stylesheet" href="styles.css" />
   <link rel="stylesheet" href="components/AIChat/AIChat.css" />
+  <link rel="stylesheet" href="components/FileUpload/FileUpload.css" />
 </head>
 <body>
   <header class="topbar">
@@ -42,6 +43,7 @@
         <p class="muted">Analyzer extracts rent-roll rows and prefills tenant lines.</p>
         <div id="fileList" class="chip-list"></div>
         <div id="sourceStatus" class="muted"></div>
+        <div id="fileUploadRoot"></div>
       </section>
 
       <section class="grid-3">
@@ -207,5 +209,6 @@
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="app.js"></script>
   <script type="module" src="components/AIChat/init.js"></script>
+  <script type="module" src="components/FileUpload/init.js"></script>
 </body>
 </html>

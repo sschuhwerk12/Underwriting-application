@@ -8,6 +8,8 @@ const state = {
   rentStepsByTenant: {},
   activeTenantForSteps: null,
   lastAssumptions: null,
+  manualTouchedFields: new Set(),
+  programmaticUpdate: false,
 };
 
 const moneyFmt = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
@@ -18,6 +20,81 @@ function formatCurrencySmart(value) {
   const n = Number(value || 0);
   if (Math.abs(n) < 100) return n.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+}
+
+
+function setupManualFieldTracking() {
+  document.addEventListener('input', (e) => {
+    const t = e.target;
+    if (state.programmaticUpdate) return;
+    if (!(t instanceof HTMLInputElement || t instanceof HTMLSelectElement || t instanceof HTMLTextAreaElement)) return;
+    if (!t.id) return;
+    state.manualTouchedFields.add(t.id);
+  });
+}
+
+function markIngestionField(id, status) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.remove('ai-populated', 'missing-field');
+  if (status === 'ai') el.classList.add('ai-populated');
+  if (status === 'missing') el.classList.add('missing-field');
+}
+
+function applyIngestionToUi(payload) {
+  const data = payload?.payload;
+  if (!data) return;
+
+  const mappings = [
+    ['acquisitionDate', data.property_profile?.acquisition_date],
+    ['grossSf', data.property_profile?.gross_sf],
+    ['purchasePrice', data.debt?.loan_amount],
+    ['holdMonths', data.assumptions?.hold_months],
+    ['exitCapRate', data.assumptions?.exit_cap_rate],
+    ['saleCostPct', data.assumptions?.sale_cost_pct],
+  ];
+
+  const conflicting = mappings.filter(([id, value]) => value != null && state.manualTouchedFields.has(id));
+  if (conflicting.length) {
+    const ok = window.confirm(`AI ingestion will overwrite ${conflicting.length} manually edited field(s). Continue?`);
+    if (!ok) return;
+  }
+
+  state.programmaticUpdate = true;
+  try {
+    mappings.forEach(([id, value]) => {
+      if (value == null) return;
+      setVal(id, value);
+      markIngestionField(id, 'ai');
+    });
+
+    const inf = data.assumptions || {};
+    for (let y = 1; y <= 10; y++) {
+      const key = `inflation_year_${y}`;
+      const v = inf[key];
+      if (typeof v === 'number') {
+        setVal(`inflation_year_${y}`, v);
+        markIngestionField(`inflation_year_${y}`, 'ai');
+      }
+    }
+
+    syncDateAndHoldDefaults();
+    syncClosingCostsBreakdown();
+  } finally {
+    state.programmaticUpdate = false;
+  }
+
+  const missing = Array.isArray(data.missing_data) ? data.missing_data : (payload.missing_data || []);
+  const missingMap = {
+    'property_profile.gross_sf': 'grossSf',
+    'assumptions.hold_months': 'holdMonths',
+    'assumptions.exit_cap_rate': 'exitCapRate',
+    'assumptions.sale_cost_pct': 'saleCostPct',
+    'property_profile.acquisition_date': 'acquisitionDate',
+  };
+  Object.entries(missingMap).forEach(([k, id]) => {
+    if (missing.includes(k)) markIngestionField(id, 'missing');
+  });
 }
 
 const mainConfig = [
@@ -290,6 +367,7 @@ function refreshTenantMlaOptions() {
 }
 
 function initForm() {
+  setupManualFieldTracking();
   const main = document.getElementById("mainInputs");
   mainConfig.forEach(([id, label, value, formatType]) => addLabeledInput(main, id, label, value, formatType));
 
@@ -2079,6 +2157,10 @@ document.addEventListener("keydown", (e) => {
   if (target.closest("#stepTableBody")) return;
   e.preventDefault();
   target.blur();
+});
+
+window.addEventListener('ai-ingestion-complete', (e) => {
+  applyIngestionToUi(e.detail);
 });
 
 if (typeof window !== "undefined" && window.pdfjsLib && window.pdfjsLib.GlobalWorkerOptions) {

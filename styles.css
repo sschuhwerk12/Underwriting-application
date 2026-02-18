@@ -166,3 +166,7 @@ pre {
 .closing-cost-line { display:grid; grid-template-columns: minmax(220px, 1fr) 200px; gap:0.5rem; align-items:end; }
 .closing-cost-output { border:1px solid var(--line); border-radius:8px; background:#f3f6fb; padding:0.52rem 0.55rem; text-align:right; font-size:0.84rem; font-weight:600; }
 .closing-cost-hint { font-size:0.73rem; color:var(--muted); align-self:center; }
+
+
+.ai-populated { outline: 2px solid #35a35f !important; background:#eefbf1 !important; }
+.missing-field { outline: 2px solid #d97706 !important; background:#fff8ed !important; }

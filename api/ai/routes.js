@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import { generateStructuredResponse, streamAssistantResponse } from '../../ai/orchestrator.js';
-import { validateChatRequestBody } from '../../lib/security/requestGuards.js';
+import { validateChatRequestBody, requireJsonBody } from '../../lib/security/requestGuards.js';
 
 export const aiRouter = Router();
 
-aiRouter.post('/respond', async (req, res, next) => {
+aiRouter.post('/respond', requireJsonBody, async (req, res, next) => {
   try {
     const valid = validateChatRequestBody(req.body);
     if (!valid.ok) {
@@ -19,7 +19,7 @@ aiRouter.post('/respond', async (req, res, next) => {
   }
 });
 
-aiRouter.post('/stream', async (req, res, next) => {
+aiRouter.post('/stream', requireJsonBody, async (req, res, next) => {
   try {
     const valid = validateChatRequestBody(req.body);
     if (!valid.ok) {

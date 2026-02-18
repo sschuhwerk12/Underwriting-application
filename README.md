@@ -1,23 +1,22 @@
 # Institutional Real Estate Underwriting Application
 
-This repository now contains:
+This repository now includes:
 
-- Existing underwriting UI + model (`index.html`, `app.js`, `styles.css`, Python CLI tools)
-- **Phase 1 AI infrastructure foundation** (backend AI layer, schema enforcement, chat shell, security, and performance scaffolding)
+- Core underwriting UI/modeling experience (`index.html`, `app.js`, `styles.css`)
+- Phase I AI backend infrastructure (secure Responses API layer + schema boundaries)
+- **Phase II ingestion pipeline** (upload, extraction, chunking, AI structuring, validation, persistence, UI auto-population)
 
 ---
 
-## Quick Start
+## Run Modes
 
-### Frontend-only preview (legacy mode)
+### Legacy static UI
 
 ```bash
 python -m http.server 8000
 ```
 
-Open `http://localhost:8000`.
-
-### Full app with AI backend (recommended for Phase 1)
+### Full AI-enabled app (recommended)
 
 ```bash
 npm install
@@ -29,65 +28,92 @@ Open `http://localhost:3000`.
 
 ---
 
-## AI Architecture Overview (Phase 1)
+## Environment Variables
 
-### Goals delivered in this phase
+See `.env.example`.
 
-- Secure server-side OpenAI integration (no frontend API keys)
-- Centralized AI client wrapper and orchestration layer
-- Streaming API support for chat shell
-- Tool-calling framework with stubs (no underwriting intelligence yet)
-- Strict structured underwriting JSON schema + validation
-- Rate limiting, input validation, API guards, and centralized error handling
-- Placeholder chunking/embedding utilities for future scale work
+Key vars:
 
-### High-level flow
-
-1. Browser chat shell sends request to `/api/ai/stream` or `/api/ai/respond`.
-2. API validates request shape and applies route protections + rate limiting.
-3. AI orchestrator uses OpenAI Responses API wrapper (or fallback echo if key absent).
-4. Structured output is validated against underwriting schema.
-5. Response is streamed/returned to frontend.
+- `OPENAI_API_KEY`
+- `OPENAI_MODEL`
+- `AI_API_REQUIRE_TOKEN`
+- `AI_API_TOKEN`
+- `AI_RATE_LIMIT_WINDOW_MS`
+- `AI_RATE_LIMIT_MAX`
+- `INGEST_MAX_FILE_BYTES`
+- `INGEST_MAX_FILES`
+- `INGEST_MAX_TOKENS_PER_CHUNK`
+- `INGEST_MAX_TOKENS_PER_BATCH`
+- `INGEST_MAX_CHUNKS_PER_BATCH`
 
 ---
 
-## Folder Structure (AI-related)
+## Phase II Ingestion Architecture
+
+### Major modules
 
 ```text
-api/
-  ai/
-    routes.js                 # /api/ai/respond + /api/ai/stream
+api/ai/ingest/routes.js            # multipart upload endpoint + orchestration
+lib/ingestion/extractors.js        # PDF/CSV/XLSX extraction
+lib/documentChunker/index.js       # token-estimated chunking + batching
+ai/ingestionAgent.js               # AI extraction orchestration + retry
+ai/ingestionAgent.ts               # TS contract mirror for migration
+lib/underwritingSchema/phase2Schema.js  # strict Zod schema + range checks
+lib/db/dealStore.js                # persistence + version tracking
+components/FileUpload/*            # ingestion UI shell
+```
 
-ai/
-  orchestrator.js             # Central request orchestration + streaming
-  tools.js                    # Tool-calling framework (stubs)
-  performance.js              # Placeholder chunking + embedding wrappers
+### Text-based data flow diagram
 
-lib/
-  ai/
-    openaiClient.js           # Centralized OpenAI client + model config
-  underwritingSchema/
-    schema.js                 # Strict schema definition
-    validate.js               # Validation/coercion helpers
-  security/
-    rateLimiter.js            # API rate limiting
-    requestGuards.js          # Input + route protection
-    errorHandlers.js          # Unified API error surface
-
-components/
-  AIChat/
-    AIChat.js                 # Chat shell UI + streaming client
-    init.js                   # Component bootstrap
-    AIChat.css                # Chat shell styling
-
-server.js                     # Express server + static hosting + API wiring
+```text
+[User Upload UI]
+   |  multipart/form-data (PDF/CSV/XLSX)
+   v
+[/api/ai/ingest]
+   |- file validation (type/size/count)
+   |- temporary storage (artifacts/tmp_uploads)
+   v
+[Extractors]
+   |- PDF parser
+   |- CSV parser
+   |- Excel parser
+   v
+[Document Chunker]
+   |- section-aware chunking
+   |- token estimation
+   |- batch packing
+   v
+[AI Ingestion Agent]
+   |- structured extraction prompt
+   |- strict JSON parse
+   |- retry once on malformed response
+   |- zod validation + type/range checks
+   |- partial merge across batches
+   v
+[Persistence Layer]
+   |- deal versioning
+   |- overwrite confirmation semantics
+   v
+[Frontend Auto-populate]
+   |- map extracted fields to underwriting UI
+   |- highlight AI-populated values
+   |- highlight missing_data fields
+   |- prompt before overwriting manual edits
 ```
 
 ---
 
-## Underwriting Schema (Phase 1 Contract)
+## AI Extraction Logic (Phase II)
 
-The enforced structured response contract is:
+`ai/ingestionAgent.js` enforces extraction-only behavior:
+
+- No valuation/advisory logic
+- No hallucinated numbers
+- Unknown fields must be `null`
+- Uncertainty is recorded in `risks_detected`
+- Missing fields are listed in `missing_data`
+
+Output contract:
 
 ```json
 {
@@ -95,77 +121,81 @@ The enforced structured response contract is:
   "income": {},
   "expenses": {},
   "debt": {},
-  "assumptions": {}
+  "assumptions": {},
+  "risks_detected": [],
+  "missing_data": []
 }
 ```
 
-Notes:
+---
 
-- Schema is intentionally strict at top level.
-- Extraction/reasoning is intentionally deferred to later phases.
+## Schema Enforcement Strategy
+
+Phase II uses Zod (`lib/underwritingSchema/phase2Schema.js`) for:
+
+- Strict top-level key enforcement
+- Strict nested object typing
+- Numeric validations (e.g., non-negative checks)
+- Range checks (e.g., percentages in `[0,1]`, hold months bounds)
+
+Malformed AI responses are rejected and retried once.
 
 ---
 
-## Security Decisions
+## Security + Safety Controls
 
-- **No API key in frontend**: OpenAI key is server-only via environment variables.
-- **Rate limiting**: configurable request throttling on `/api` routes.
-- **Input validation**: request body shape and limits enforced before AI execution.
-- **Route protection**: optional token-based API guard (`AI_API_REQUIRE_TOKEN=true`).
-- **Central error handling**: consistent machine-readable API errors.
-
----
-
-## Performance Preparation (Phase 1 only)
-
-Implemented placeholders:
-
-- `chunkTextPlaceholder(...)`
-- `embedTextPlaceholder(...)`
-
-These include TODOs for Phase 2 integration with ingestion/vector systems.
+- Backend-only OpenAI calls (no API keys in browser)
+- API rate limiting
+- Optional token-based route protection
+- File extension and size validation
+- Upload count limits
+- Temp file cleanup after ingestion
+- Input validation for chat/AI endpoints
 
 ---
 
-## Phase Roadmap
+## Token Management Strategy
 
-### Phase 1 (current)
+- Section-first extraction (preserves doc references)
+- Estimated-token chunk splitting
+- Batch packing by token budget + chunk count ceiling
+- Batch-by-batch AI extraction with deterministic merge strategy
 
-- AI infrastructure only (backend + schema + secure transport + chat shell)
-
-### Phase 2 (planned)
-
-- File ingestion + parsing pipelines
-- Real chunking + embedding + retrieval
-- Tool wiring into real data sources
-
-### Phase 3 (planned)
-
-- Advanced underwriting reasoning
-- Error detection and suggestion engine
-- Confidence scoring and explanation layer
+This is designed to prevent token overflow and to prepare for future retrieval expansion.
 
 ---
 
-## Text-based Architecture Diagram
+## UI Auto-Population Behavior
 
-```text
-[Browser UI]
-   |  (POST /api/ai/respond, /api/ai/stream)
-   v
-[Express API Layer]
-   |- rate limiter
-   |- request validation
-   |- route protection
-   v
-[AI Orchestrator]
-   |- OpenAI client wrapper
-   |- tool registry (stubs)
-   |- schema validation
-   v
-[Structured Underwriting JSON]
-   (property_profile, income, expenses, debt, assumptions)
-```
+On successful ingestion:
+
+- Structured fields map into underwriting inputs
+- AI-populated fields are visually highlighted
+- Missing data targets are visually highlighted
+- Manual user edits are protected via overwrite confirmation prompt
+
+---
+
+## Known Limitations (Intentionally deferred)
+
+- No valuation intelligence
+- No cap rate recommendations
+- No investment advisory
+- No critique/error reasoning engine
+- No advanced ingestion confidence scoring yet
+
+---
+
+## Future Extensibility (Phase III and beyond)
+
+Phase II was designed so ingestion decisions can feed valuation reasoning later:
+
+- Stable schema boundary between extraction and modeling
+- Versioned persistence to support re-ingest comparisons
+- Section/chunk metadata for future evidence tracing
+- Tool scaffolds from Phase I remain reusable for retrieval and reasoning orchestration
+
+Phase III can now safely add underwriting intelligence on top of validated structured inputs.
 
 ---
 
@@ -175,4 +205,4 @@ These include TODOs for Phase 2 integration with ingestion/vector systems.
 python -m unittest discover -s tests -p "test_*.py" -v
 ```
 
-> Phase 1 AI infrastructure is additive and does not implement underwriting intelligence.
+Additional JS syntax checks are run with `node --check` for all new ingestion modules.
