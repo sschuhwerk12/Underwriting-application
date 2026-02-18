@@ -10,6 +10,7 @@ const state = {
   lastAssumptions: null,
   manualTouchedFields: new Set(),
   programmaticUpdate: false,
+  activeDealId: 'active-ui-deal',
 };
 
 const moneyFmt = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
@@ -2160,8 +2161,43 @@ document.addEventListener("keydown", (e) => {
 });
 
 window.addEventListener('ai-ingestion-complete', (e) => {
+  state.activeDealId = e.detail?.dealId || state.activeDealId;
   applyIngestionToUi(e.detail);
 });
+
+
+window.getCurrentModelSnapshot = () => gatherAssumptions();
+window.getActiveDealId = () => state.activeDealId || 'active-ui-deal';
+
+window.applyAiModelChanges = (changes = []) => {
+  const idMap = {
+    purchasePrice: 'purchasePrice',
+    grossSf: 'grossSf',
+    holdMonths: 'holdMonths',
+    exitCapRate: 'exitCapRate',
+    saleCostPct: 'saleCostPct',
+    initialLtv: 'initialLtv',
+    'debt.initialLtv': 'initialLtv',
+  };
+
+  state.programmaticUpdate = true;
+  try {
+    for (const change of changes) {
+      const inputId = idMap[change.field];
+      if (!inputId) continue;
+      setVal(inputId, change.proposed_value);
+      markIngestionField(inputId, 'ai');
+    }
+    syncDateAndHoldDefaults();
+    syncClosingCostsBreakdown();
+  } finally {
+    state.programmaticUpdate = false;
+  }
+
+  const assumptions = gatherAssumptions();
+  state.lastResult = runModel(assumptions);
+  render(state.lastResult);
+};
 
 if (typeof window !== "undefined" && window.pdfjsLib && window.pdfjsLib.GlobalWorkerOptions) {
   window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.js";

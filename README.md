@@ -206,3 +206,104 @@ python -m unittest discover -s tests -p "test_*.py" -v
 ```
 
 Additional JS syntax checks are run with `node --check` for all new ingestion modules.
+
+---
+
+## Phase III Architecture (Reasoning + Validation)
+
+### New modules
+
+```text
+api/ai/phase3Routes.js                  # advisor/audit/scenarios/apply-changes endpoints
+ai/phase3/advisorAgent.js               # underwriting reasoning agent (strict contract)
+ai/phase3/auditAgent.js                 # validation/error-check agent
+ai/phase3/scenarioAgent.js              # base/upside/downside + sensitivities
+ai/phase3/tools.js                      # fetchDeal/fetchModelFields/propose/apply/runAudit/createScenarioSet
+ai/phase3/memoryStore.js                # conversation summary memory + pending change tokens
+lib/underwritingSchema/phase3Schemas.js # strict Zod contracts for advisor/audit/scenario/apply
+artifacts/model_fields/*                  # persisted current model fields by deal
+```
+
+### Phase III data flow (text diagram)
+
+```text
+[AIChat UI]
+  |- mode: Advisor / Audit / Scenarios
+  |- sends current UI model snapshot + deal_id
+  v
+[/api/ai/advisor] (SSE)
+  |- persist latest model fields snapshot
+  |- run advisor agent with guardrails + tool-capable Responses API
+  |- validate strict advisor JSON contract
+  |- register pending proposal token for explicit apply
+  v
+[UI Proposed Changes Panel]
+  |- user reviews field-by-field diffs
+  |- explicit modal confirmation required
+  v
+[/api/ai/apply-changes]
+  |- requires confirm=true + confirmationToken
+  |- applies persisted change set only if token exists + not expired
+  |- reruns audit and returns updated report
+
+[/api/ai/audit]
+  |- validation/error-check agent
+  |- strict audit contract with field-level flags
+
+[/api/ai/scenarios]
+  |- scenario generator (deltas only)
+  |- strict scenario contract + apply_requires_confirmation=true
+```
+
+### Contracts (server-enforced)
+
+Phase III enforces strict JSON contracts with Zod for:
+
+- Advisor response contract (`mode`, `summary`, `analysis`, `assumptions_used`, `unknowns`, `risks`, `recommended_actions`, `proposed_model_changes`)
+- Audit contract (`errors`, `warnings`, `questions`, `improvement_suggestions`)
+- Scenario contract (base/upside/downside **deltas only** + sensitivities + `apply_requires_confirmation: true`)
+- Apply changes request (`confirm: true` + confirmation token)
+
+### Guardrails and safety model
+
+- The advisor system prompt prohibits fabricating market data, comps, and financing terms.
+- If market evidence is missing, the response must request user-provided cap-rate/lender inputs.
+- Proposed changes are never auto-applied.
+- Apply endpoint enforces explicit confirmation token and expiry before any model updates.
+- API requests/responses for Phase III are logged with basic redaction.
+- OpenAI key remains backend-only.
+
+### UI behavior (Phase III)
+
+- AIChat now supports **Advisor / Audit / Scenarios** modes.
+- Proposed model changes render in a field-level diff panel.
+- Applying changes requires an explicit confirmation modal.
+- Audit report panel renders errors, warnings, questions, and suggestions.
+- Long-running advisor calls use SSE progress events.
+
+### Testing (Phase III)
+
+Run:
+
+```bash
+npm run test:phase3
+```
+
+Covers:
+- advisor contract compliance
+- audit contract structure
+- scenario contract compliance
+- apply-changes confirmation enforcement
+
+### Known limitations
+
+- Conversation memory is a lightweight summary/history store (file-based) and not embedding retrieval yet.
+- Advisor may fall back to deterministic reasoning if OpenAI is unavailable.
+- Scenario sensitivities are template-driven unless user provides richer market datasets.
+
+### How to add market datasets later
+
+1. Add a market dataset ingestion adapter (e.g., cap comps / debt quotes).
+2. Persist normalized market evidence by deal/market date.
+3. Extend advisor/audit tools to fetch that evidence (`fetchMarketEvidence`).
+4. Require evidence citations in advisor outputs for rate recommendations.

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { generateStructuredResponse, streamAssistantResponse } from '../../ai/orchestrator.js';
 import { validateChatRequestBody, requireJsonBody } from '../../lib/security/requestGuards.js';
+import { phase3Router } from './phase3Routes.js';
 
 export const aiRouter = Router();
 
@@ -42,3 +43,5 @@ aiRouter.post('/stream', requireJsonBody, async (req, res, next) => {
     next(err);
   }
 });
+
+aiRouter.use('/', phase3Router);
