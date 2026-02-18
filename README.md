@@ -39,12 +39,12 @@ This project is now standardized to **one module system: ESM**.
 - Excel ingestion uses **buffer-based parsing** (`XLSX.read(buffer, { type: "buffer" })`) for reliable cross-platform behavior
 - PDF ingestion uses `pdf-parse/lib/pdf-parse.js` via lazy loading (not package-root import) to avoid startup ENOENT issues tied to package test-fixture loading in some environments
 - OpenAI client is instantiated with the modern SDK pattern (`new OpenAI({ apiKey: process.env.OPENAI_API_KEY })`) and all AI paths use `client.responses.create(...)`
-- Required OpenAI SDK version: `openai@4.79.0` (pinned in `package.json`) to guarantee `client.responses.create(...)` support
+- Required OpenAI SDK version: `openai@5.0.0` (pinned in `package.json`) to guarantee `client.responses.create(...)` support
 - Missing `OPENAI_API_KEY` now fails gracefully with explicit API error code `OPENAI_API_KEY_MISSING`
 
 Recommended runtime:
 
-- Node.js `20.11+` (Node `22.x` is also supported)
+- Node.js `18.18+` (Node `20.x` and `22.x` are supported)
 - npm `10+`
 
 ### Clean Windows setup (PowerShell)
