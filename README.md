@@ -37,6 +37,7 @@ This project is now standardized to **one module system: ESM**.
 - Server/runtime imports use `import` / `export` only
 - `uuid` dependency usage was removed in favor of Node built-in `crypto.randomUUID()`
 - Excel ingestion uses **buffer-based parsing** (`XLSX.read(buffer, { type: "buffer" })`) for reliable cross-platform behavior
+- PDF ingestion uses `pdf-parse/lib/pdf-parse.js` via lazy loading (not package-root import) to avoid startup ENOENT issues tied to package test-fixture loading in some environments
 
 Recommended runtime:
 
