@@ -1,0 +1,13 @@
+{
+  "deal_id": "deal-phase3-fixture",
+  "model_fields": {
+    "purchasePrice": 25000000,
+    "grossSf": 100000,
+    "holdMonths": 60,
+    "exitCapRate": 0.055,
+    "saleCostPct": 0.03,
+    "initialLtv": 0.62,
+    "growthByYear": [0.03, 0.03, 0.03],
+    "inflationByYear": [0.025, 0.025, 0.025]
+  }
+}
