@@ -1,4 +1,4 @@
-import { getOpenAIClient, getModel } from '../lib/ai/openaiClient.js';
+import { getRequiredOpenAIClient, getModel } from '../lib/ai/openaiClient.js';
 import { phase2SchemaDefault, validatePhase2Extraction } from '../lib/underwritingSchema/phase2Schema.js';
 
 function systemPrompt() {
@@ -42,18 +42,7 @@ async function requestOnePass(client, batchText) {
 }
 
 export async function extractUnderwritingFromBatches({ batches }) {
-  const client = getOpenAIClient();
-
-  if (!client) {
-    return {
-      ...phase2SchemaDefault,
-      risks_detected: ['OPENAI_API_KEY not configured. Returned null extraction payload.'],
-      missing_data: [
-        'property_profile.property_name', 'property_profile.gross_sf', 'income.annual_gross_income',
-        'expenses.opex_psf_year', 'debt.loan_amount', 'assumptions.hold_months', 'assumptions.exit_cap_rate',
-      ],
-    };
-  }
+  const client = getRequiredOpenAIClient('ingestion');
 
   let aggregate = structuredClone(phase2SchemaDefault);
 

@@ -38,6 +38,8 @@ This project is now standardized to **one module system: ESM**.
 - `uuid` dependency usage was removed in favor of Node built-in `crypto.randomUUID()`
 - Excel ingestion uses **buffer-based parsing** (`XLSX.read(buffer, { type: "buffer" })`) for reliable cross-platform behavior
 - PDF ingestion uses `pdf-parse/lib/pdf-parse.js` via lazy loading (not package-root import) to avoid startup ENOENT issues tied to package test-fixture loading in some environments
+- OpenAI client is instantiated with the modern SDK pattern (`new OpenAI({ apiKey: process.env.OPENAI_API_KEY })`) and all AI paths use `client.responses.create(...)`
+- Missing `OPENAI_API_KEY` now fails gracefully with explicit API error code `OPENAI_API_KEY_MISSING`
 
 Recommended runtime:
 

@@ -1,4 +1,4 @@
-import { getOpenAIClient, getModel } from '../../lib/ai/openaiClient.js';
+import { getRequiredOpenAIClient, getModel } from '../../lib/ai/openaiClient.js';
 import { advisorResponseSchema } from '../../lib/underwritingSchema/phase3Schemas.js';
 import { buildAssumptionsUsed, buildPhase3Context } from './context.js';
 import { appendDealMemory } from './memoryStore.js';
@@ -191,22 +191,18 @@ export async function generateAdvisorResponse({ dealId, prompt, mode = 'chat', h
   const context = await buildPhase3Context({ dealId });
   const resolvedMode = detectMode(prompt, mode);
 
-  const client = getOpenAIClient();
   let advisor;
-  if (!client) {
+  try {
+    const client = getRequiredOpenAIClient('phase3-advisor');
+    const raw = await runWithTools(client, prompt, resolvedMode, {
+      deal: context.deal,
+      model: context.model,
+      memory: context.memory,
+      history: history.slice(-8),
+    });
+    advisor = advisorResponseSchema.parse(raw);
+  } catch {
     advisor = localAdvisorFallback({ mode: resolvedMode, context, prompt });
-  } else {
-    try {
-      const raw = await runWithTools(client, prompt, resolvedMode, {
-        deal: context.deal,
-        model: context.model,
-        memory: context.memory,
-        history: history.slice(-8),
-      });
-      advisor = advisorResponseSchema.parse(raw);
-    } catch {
-      advisor = localAdvisorFallback({ mode: resolvedMode, context, prompt });
-    }
   }
 
   let changeProposal = null;

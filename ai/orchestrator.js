@@ -1,4 +1,4 @@
-import { getOpenAIClient, getModel } from '../lib/ai/openaiClient.js';
+import { getRequiredOpenAIClient, getModel } from '../lib/ai/openaiClient.js';
 import { runToolCall } from './tools.js';
 import { coerceToUnderwritingPayload, validateUnderwritingPayload } from '../lib/underwritingSchema/validate.js';
 import { underwritingSchema } from '../lib/underwritingSchema/schema.js';
@@ -12,8 +12,6 @@ function buildSystemPrompt() {
 }
 
 export async function generateStructuredResponse({ message, history = [], toolCalls = [] }) {
-  const client = getOpenAIClient();
-
   const toolOutputs = [];
   for (const call of toolCalls) {
     if (!call?.name) continue;
@@ -21,7 +19,10 @@ export async function generateStructuredResponse({ message, history = [], toolCa
     toolOutputs.push(await runToolCall(call.name, call.args || {}));
   }
 
-  if (!client) {
+  let client = null;
+  try {
+    client = getRequiredOpenAIClient('phase1-orchestrator');
+  } catch {
     const fallback = coerceToUnderwritingPayload({
       assumptions: { echo: message, tool_outputs: toolOutputs },
     });
@@ -69,8 +70,10 @@ export async function generateStructuredResponse({ message, history = [], toolCa
 }
 
 export async function* streamAssistantResponse({ message, history = [] }) {
-  const client = getOpenAIClient();
-  if (!client) {
+  let client = null;
+  try {
+    client = getRequiredOpenAIClient('phase1-stream');
+  } catch {
     const fallback = `Phase 1 echo: ${message}`;
     for (const token of fallback.split(' ')) {
       yield `${token} `;
