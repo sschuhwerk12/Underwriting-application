@@ -28,6 +28,36 @@ Open `http://localhost:3000`.
 
 ---
 
+
+## Runtime Compatibility Baseline (Windows + Node)
+
+This project is now standardized to **one module system: ESM**.
+
+- `package.json` uses `"type": "module"`
+- Server/runtime imports use `import` / `export` only
+- `uuid` dependency usage was removed in favor of Node built-in `crypto.randomUUID()`
+- Excel ingestion uses **buffer-based parsing** (`XLSX.read(buffer, { type: "buffer" })`) for reliable cross-platform behavior
+
+Recommended runtime:
+
+- Node.js `20.11+` (Node `22.x` is also supported)
+- npm `10+`
+
+### Clean Windows setup (PowerShell)
+
+```powershell
+# from repo root
+Remove-Item -Recurse -Force node_modules, package-lock.json -ErrorAction SilentlyContinue
+npm cache verify
+npm install
+Copy-Item .env.example .env
+npm start
+```
+
+If your environment uses a private npm mirror/policy, ensure `csv-parse`, `multer`, and `xlsx` are allowed.
+
+---
+
 ## Environment Variables
 
 See `.env.example`.

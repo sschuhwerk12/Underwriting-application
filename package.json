@@ -10,15 +10,18 @@
     "test:phase3": "node --test tests/phase3/*.test.js"
   },
   "dependencies": {
-    "dotenv": "^16.4.5",
-    "express": "^4.19.2",
-    "express-rate-limit": "^7.4.1",
-    "openai": "^4.58.1",
-    "multer": "^1.4.5-lts.1",
-    "pdf-parse": "^1.1.1",
-    "xlsx": "^0.18.5",
-    "csv-parse": "^5.5.6",
-    "zod": "^3.23.8",
-    "uuid": "^10.0.0"
+    "dotenv": "16.4.5",
+    "express": "4.19.2",
+    "express-rate-limit": "7.4.1",
+    "openai": "4.58.1",
+    "multer": "1.4.5-lts.1",
+    "pdf-parse": "1.1.1",
+    "xlsx": "0.18.5",
+    "csv-parse": "5.5.6",
+    "zod": "3.23.8"
+  },
+  "description": "Institutional real estate underwriting application with AI ingestion and advisory workflows.",
+  "engines": {
+    "node": ">=20.11.0"
   }
 }
