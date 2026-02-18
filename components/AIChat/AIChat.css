@@ -1,0 +1,7 @@
+.ai-chat-shell { border:1px solid var(--line); border-radius:10px; padding:0.75rem; background:#fff; margin-top:0.75rem; }
+.ai-chat-history { height:220px; overflow:auto; border:1px solid var(--line); border-radius:8px; padding:0.5rem; background:#f9fbff; margin-bottom:0.55rem; }
+.ai-chat-form { display:flex; gap:0.5rem; }
+.ai-chat-form input { flex:1; }
+.ai-msg { font-size:0.82rem; margin-bottom:0.45rem; }
+.ai-msg.user { color:#0f2f6f; }
+.ai-msg.assistant { color:#111; }

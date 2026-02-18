@@ -1,0 +1,23 @@
+{
+  "name": "underwriting-application",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "check": "node --check server.js && node --check api/ai/routes.js && node --check ai/orchestrator.js && node --check lib/ai/openaiClient.js && node --check api/ai/ingest/routes.js && node --check ai/ingestionAgent.js && node --check lib/documentChunker/index.js && node --check lib/ingestion/extractors.js && node --check lib/db/dealStore.js && node --check components/FileUpload/FileUpload.js && node --check components/FileUpload/init.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.4.1",
+    "openai": "^4.58.1",
+    "multer": "^1.4.5-lts.1",
+    "pdf-parse": "^1.1.1",
+    "xlsx": "^0.18.5",
+    "csv-parse": "^5.5.6",
+    "zod": "^3.23.8",
+    "uuid": "^10.0.0"
+  }
+}
