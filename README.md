@@ -1,62 +1,178 @@
 # Institutional Real Estate Underwriting Application
 
-A clean, institutional front-end prototype for office/retail/industrial underwriting with:
+This repository now contains:
 
-- File-drop intake (OMs, rent rolls, comps) with manual completion of missing fields
-- Monthly DCF modeling with annual rollups
-- Returns calculated from monthly cash flows (levered/unlevered IRR, equity multiple, levered profit)
-- Capex timing bucket and general reserves input
-- MLA (market leasing assumption) tranches that can be applied to multiple tenants
-- Acquisition, debt, refinance, and exit assumption panels
-- Multi-section summary report generation
-- Excel-compatible workbook export (SpreadsheetML XML that opens in Excel and remains editable)
+- Existing underwriting UI + model (`index.html`, `app.js`, `styles.css`, Python CLI tools)
+- **Phase 1 AI infrastructure foundation** (backend AI layer, schema enforcement, chat shell, security, and performance scaffolding)
 
-## 1) Run the UI locally
+---
+
+## Quick Start
+
+### Frontend-only preview (legacy mode)
 
 ```bash
 python -m http.server 8000
 ```
 
-Then open: `http://localhost:8000`
+Open `http://localhost:8000`.
 
-
-## Source material ingestion (multi-file prefill)
-
-- Upload multiple files at once in **Source Materials** (supports `.pdf`, `.txt`, `.md`, `.csv`).
-- Click **Analyze PDFs for Rent Roll** to parse rent-roll rows only and auto-populate tenant SF, lease commencement, lease expiration, and current rent.
-- Per tenant, choose rent format (`$/SF/Mo`, `$/SF/Year`, `$/Year`) and add annual rent steps with effective dates.
-- Apply an MLA tranche to individual tenants; MLA includes downtime, TI/LC, free rent, renewal assumptions.
-- Leverage includes interest-only months and amortization months, with fixed rate or floating spread/benchmark behavior.
-- Exit assumptions are in a separate section with exit cap rate and sale cost %.
-- Market rent growth is a dedicated global section (default 3% years 1-10).
-- Operating expenses are modeled in a dedicated section with amount type (`$/Year` or `$/SF/Year`) and reimbursable selection by tenant (default all reimburse).
-
-## 2) Run the underwriting model locally (CLI)
+### Full app with AI backend (recommended for Phase 1)
 
 ```bash
-python underwriting_model.py --input examples/sample_assumptions.json --output artifacts/model_output.json
+npm install
+cp .env.example .env
+npm start
 ```
 
-This produces a JSON payload with monthly cash flows, annual rollups, and return metrics.
+Open `http://localhost:3000`.
 
-## 3) Generate the underwriting memo from assumptions
+---
 
-```bash
-python generate_report.py --input examples/sample_assumptions.json --output artifacts/investment_summary.md
+## AI Architecture Overview (Phase 1)
+
+### Goals delivered in this phase
+
+- Secure server-side OpenAI integration (no frontend API keys)
+- Centralized AI client wrapper and orchestration layer
+- Streaming API support for chat shell
+- Tool-calling framework with stubs (no underwriting intelligence yet)
+- Strict structured underwriting JSON schema + validation
+- Rate limiting, input validation, API guards, and centralized error handling
+- Placeholder chunking/embedding utilities for future scale work
+
+### High-level flow
+
+1. Browser chat shell sends request to `/api/ai/stream` or `/api/ai/respond`.
+2. API validates request shape and applies route protections + rate limiting.
+3. AI orchestrator uses OpenAI Responses API wrapper (or fallback echo if key absent).
+4. Structured output is validated against underwriting schema.
+5. Response is streamed/returned to frontend.
+
+---
+
+## Folder Structure (AI-related)
+
+```text
+api/
+  ai/
+    routes.js                 # /api/ai/respond + /api/ai/stream
+
+ai/
+  orchestrator.js             # Central request orchestration + streaming
+  tools.js                    # Tool-calling framework (stubs)
+  performance.js              # Placeholder chunking + embedding wrappers
+
+lib/
+  ai/
+    openaiClient.js           # Centralized OpenAI client + model config
+  underwritingSchema/
+    schema.js                 # Strict schema definition
+    validate.js               # Validation/coercion helpers
+  security/
+    rateLimiter.js            # API rate limiting
+    requestGuards.js          # Input + route protection
+    errorHandlers.js          # Unified API error surface
+
+components/
+  AIChat/
+    AIChat.js                 # Chat shell UI + streaming client
+    init.js                   # Component bootstrap
+    AIChat.css                # Chat shell styling
+
+server.js                     # Express server + static hosting + API wiring
 ```
 
-## 4) Run local tests
+---
+
+## Underwriting Schema (Phase 1 Contract)
+
+The enforced structured response contract is:
+
+```json
+{
+  "property_profile": {},
+  "income": {},
+  "expenses": {},
+  "debt": {},
+  "assumptions": {}
+}
+```
+
+Notes:
+
+- Schema is intentionally strict at top level.
+- Extraction/reasoning is intentionally deferred to later phases.
+
+---
+
+## Security Decisions
+
+- **No API key in frontend**: OpenAI key is server-only via environment variables.
+- **Rate limiting**: configurable request throttling on `/api` routes.
+- **Input validation**: request body shape and limits enforced before AI execution.
+- **Route protection**: optional token-based API guard (`AI_API_REQUIRE_TOKEN=true`).
+- **Central error handling**: consistent machine-readable API errors.
+
+---
+
+## Performance Preparation (Phase 1 only)
+
+Implemented placeholders:
+
+- `chunkTextPlaceholder(...)`
+- `embedTextPlaceholder(...)`
+
+These include TODOs for Phase 2 integration with ingestion/vector systems.
+
+---
+
+## Phase Roadmap
+
+### Phase 1 (current)
+
+- AI infrastructure only (backend + schema + secure transport + chat shell)
+
+### Phase 2 (planned)
+
+- File ingestion + parsing pipelines
+- Real chunking + embedding + retrieval
+- Tool wiring into real data sources
+
+### Phase 3 (planned)
+
+- Advanced underwriting reasoning
+- Error detection and suggestion engine
+- Confidence scoring and explanation layer
+
+---
+
+## Text-based Architecture Diagram
+
+```text
+[Browser UI]
+   |  (POST /api/ai/respond, /api/ai/stream)
+   v
+[Express API Layer]
+   |- rate limiter
+   |- request validation
+   |- route protection
+   v
+[AI Orchestrator]
+   |- OpenAI client wrapper
+   |- tool registry (stubs)
+   |- schema validation
+   v
+[Structured Underwriting JSON]
+   (property_profile, income, expenses, debt, assumptions)
+```
+
+---
+
+## Existing Local Tests
 
 ```bash
 python -m unittest discover -s tests -p "test_*.py" -v
 ```
 
-## Files
-
-- `index.html`: institutional UX layout
-- `styles.css`: visual system
-- `app.js`: underwriting engine + exports + report generation in-browser
-- `underwriting_model.py`: CLI underwriting engine for local testing/automation
-- `generate_report.py`: CLI summary generator
-- `examples/sample_assumptions.json`: sample assumptions payload
-- `tests/test_local.py`: local smoke/integration tests
+> Phase 1 AI infrastructure is additive and does not implement underwriting intelligence.

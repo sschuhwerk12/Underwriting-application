@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Institutional Underwriting Platform</title>
   <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="components/AIChat/AIChat.css" />
 </head>
 <body>
   <header class="topbar">
@@ -108,6 +109,9 @@
         <h2>6) Market Rent Growth (Global)</h2>
         <div class="horizontal-scroll"><div id="growthInputs" class="growth-grid"></div></div>
         <p class="muted">Base case defaults to 3% for Years 1-10.</p>
+        <h3 style="margin-top:0.8rem; margin-bottom:0.35rem;">General Inflation (Global)</h3>
+        <div class="horizontal-scroll"><div id="inflationInputs" class="growth-grid"></div></div>
+        <p class="muted">Applies to all operating expenses, leasing commissions, and tenant improvements.</p>
       </section>
 
       <section class="panel">
@@ -149,18 +153,18 @@
           <button id="addCapex" class="btn">+ Add Capex Line</button>
         </div>
         <div class="capex-grid">
-          <label>General Capital Reserves ($/month)
-            <input id="reservesMonthly" data-format="currency" type="text" value="15,000" />
+          <label>General Capital Reserves ($/SF/Year)
+            <input id="reservesPsfYear" data-format="currency" data-raw="0.2" type="text" value="$0.20" />
           </label>
         </div>
         <div class="table-wrap">
           <table class="table" id="capexTable">
             <thead>
               <tr>
-                <th>Month</th>
+                <th>Start Month</th>
+                <th>Stop Month</th>
                 <th>Category</th>
-                <th>Amount ($)</th>
-                <th>Reimbursable by Lender</th>
+                <th>Total Cost ($)</th>
                 <th>Notes</th>
                 <th></th>
               </tr>
@@ -178,6 +182,7 @@
         <div id="kpiBar" class="kpi-bar"></div>
         <pre id="summary"></pre>
         <div id="metrics"></div>
+        <div id="aiChatRoot"></div>
         <h3 style="margin-top:1rem;">Monthly Cash Flow Statement (Horizontal)</h3>
         <div id="cashFlowStatement"></div>
         <h3 style="margin-top:1rem;">Annual Cash Flow Statement (Horizontal)</h3>
@@ -201,5 +206,6 @@
   <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="app.js"></script>
+  <script type="module" src="components/AIChat/init.js"></script>
 </body>
 </html>

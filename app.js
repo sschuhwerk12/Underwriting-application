@@ -252,6 +252,24 @@ function getGrowthArray() {
   return arr;
 }
 
+function initInflationInputs() {
+  const c = document.getElementById("inflationInputs");
+  if (!c) return;
+  c.innerHTML = "";
+  for (let y = 1; y <= 10; y++) {
+    const label = document.createElement("label");
+    label.textContent = `Year ${y}`;
+    label.appendChild(createInput(`inflation_year_${y}`, 0.025, "percent"));
+    c.appendChild(label);
+  }
+}
+
+function getInflationArray() {
+  const arr = [];
+  for (let y = 1; y <= 10; y++) arr.push(getVal(`inflation_year_${y}`));
+  return arr;
+}
+
 function getMlaNames() {
   const names = [];
   for (let i = 1; i <= state.mlaCount; i++) {
@@ -322,10 +340,11 @@ function initForm() {
   syncClosingCostsBreakdown();
 
   initGrowthInputs();
+  initInflationInputs();
   addMla();
   addTenant();
   addOpexLine("Taxes", 300000, "$/Year", true, "");
-  addCapexLine(6, "Building Systems", 250000, 0.5, "HVAC replacements");
+  addCapexLine(6, 12, "Building Systems", 700000, "HVAC replacements");
   renderCapexSummary();
 }
 
@@ -343,7 +362,7 @@ function addMla() {
     <div class="mla-grid mla-grid-row">
       <label>Name<input id="mla_name_${i}" type="text" value="MLA-${i}" onblur="refreshTenantMlaOptions()" /></label>
       <label>Market Rent<input id="mla_rent_${i}" data-format="currency" data-raw="4" type="text" value="$4" /></label>
-      <label>Market Rent Format<select id="mla_rent_type_${i}"><option>$/SF/Mo</option><option>$/SF/Year</option><option>$/Year</option></select></label>
+      <label>Market Rent Format<select id="mla_rent_type_${i}"><option>$/SF/Mo</option><option selected>$/SF/Year</option><option>$/Year</option></select></label>
       <label>TI New ($/SF)<input id="mla_ti_new_${i}" data-format="currency" data-raw="30" type="text" value="$30" /></label>
       <label>TI Renewal ($/SF)<input id="mla_ti_ren_${i}" data-format="currency" data-raw="15" type="text" value="$15" /></label>
       <label>Renewal Probability<input id="mla_renew_${i}" data-format="percent" data-raw="0.6" type="text" value="60.00%" /></label>
@@ -389,9 +408,9 @@ function addTenant(prefill = {}) {
     <td><input id="tenant_rent_${i}" data-format="currency" data-raw="${prefill.currentRent || 3.75}" value="${displayFormatted(prefill.currentRent || 3.75, "currency")}" /></td>
     <td>
       <select id="tenant_rent_type_${i}">
-        <option ${prefill.rentType === "$/SF/Year" ? "selected" : ""}>$/SF/Year</option>
+        <option ${(prefill.rentType || "$/SF/Year") === "$/SF/Year" ? "selected" : ""}>$/SF/Year</option>
         <option ${prefill.rentType === "$/Year" ? "selected" : ""}>$/Year</option>
-        <option ${(prefill.rentType || "$/SF/Mo") === "$/SF/Mo" ? "selected" : ""}>$/SF/Mo</option>
+        <option ${(prefill.rentType || "$/SF/Year") === "$/SF/Mo" ? "selected" : ""}>$/SF/Mo</option>
       </select>
     </td>
     <td><select id="tenant_mla_${i}">${mlaOptions}</select></td>
@@ -433,12 +452,13 @@ function addOpexLine(name = "", amount = 0, amountType = "$/Year", reimb = true,
   tr.querySelectorAll("input[data-format]").forEach(bindFormattedInput);
 }
 
-function addCapexLine(month = 1, category = "General", amount = 0, reimb = 0.5, notes = "") {
+function addCapexLine(startMonth = 1, stopMonth = 1, category = "General", totalCost = 0, notes = "") {
   state.capexCount += 1;
   const i = state.capexCount;
   const tr = document.createElement("tr");
   tr.innerHTML = `
-    <td><input id="capex_month_${i}" data-format="number" data-raw="${month}" value="${month}" /></td>
+    <td><input id="capex_start_${i}" data-format="number" data-raw="${startMonth}" value="${startMonth}" /></td>
+    <td><input id="capex_stop_${i}" data-format="number" data-raw="${stopMonth}" value="${stopMonth}" /></td>
     <td>
       <select id="capex_category_${i}">
         <option ${category === "General" ? "selected" : ""}>General</option>
@@ -448,8 +468,7 @@ function addCapexLine(month = 1, category = "General", amount = 0, reimb = 0.5, 
         <option ${category === "Amenities" ? "selected" : ""}>Amenities</option>
       </select>
     </td>
-    <td><input id="capex_amount_${i}" data-format="currency" data-raw="${amount}" value="${displayFormatted(amount, "currency")}" /></td>
-    <td><input id="capex_reimb_${i}" data-format="percent" data-raw="${reimb}" value="${displayFormatted(reimb, "percent")}" /></td>
+    <td><input id="capex_amount_${i}" data-format="currency" data-raw="${totalCost}" value="${displayFormatted(totalCost, "currency")}" /></td>
     <td><input id="capex_note_${i}" value="${notes}" /></td>
     <td><button class="btn btn-danger" type="button" onclick="this.closest('tr').remove(); renderCapexSummary();">X</button></td>
   `;
@@ -511,7 +530,7 @@ function gatherAssumptions() {
     mlas.push({
       name: document.getElementById(`mla_name_${i}`).value.trim() || `MLA-${i}`,
       marketRent: getVal(`mla_rent_${i}`),
-      marketRentType: document.getElementById(`mla_rent_type_${i}`)?.value || "$/SF/Mo",
+      marketRentType: document.getElementById(`mla_rent_type_${i}`)?.value || "$/SF/Year",
       tiNew: getVal(`mla_ti_new_${i}`),
       tiRenewal: getVal(`mla_ti_ren_${i}`),
       renewalProbability: getVal(`mla_renew_${i}`),
@@ -562,17 +581,23 @@ function gatherAssumptions() {
   const capexLines = [];
   const capexSchedule = {};
   for (let i = 1; i <= state.capexCount; i++) {
-    if (!document.getElementById(`capex_month_${i}`)) continue;
-    const month = Math.round(getVal(`capex_month_${i}`));
-    const amount = getVal(`capex_amount_${i}`);
+    if (!document.getElementById(`capex_start_${i}`)) continue;
+    const startMonth = Math.max(1, Math.round(getVal(`capex_start_${i}`)));
+    const stopMonth = Math.max(startMonth, Math.round(getVal(`capex_stop_${i}`)));
+    const totalCost = getVal(`capex_amount_${i}`);
+    const months = (stopMonth - startMonth + 1);
+    const monthlyCost = months > 0 ? (totalCost / months) : 0;
     capexLines.push({
-      month,
+      startMonth,
+      stopMonth,
       category: document.getElementById(`capex_category_${i}`).value,
-      amount,
-      reimbPct: getVal(`capex_reimb_${i}`),
+      totalCost,
+      monthlyCost,
       notes: document.getElementById(`capex_note_${i}`).value,
     });
-    capexSchedule[month] = (capexSchedule[month] || 0) + amount;
+    for (let m = startMonth; m <= stopMonth; m++) {
+      capexSchedule[m] = (capexSchedule[m] || 0) + monthlyCost;
+    }
   }
 
   const debt = {
@@ -632,8 +657,10 @@ function gatherAssumptions() {
     },
     exitCapRate: getVal("exitCapRate"),
     saleCostPct: getVal("saleCostPct"),
-    reservesMonthly: getVal("reservesMonthly"),
+    reservesPsfYear: getVal("reservesPsfYear"),
+    reservesMonthly: (getVal("reservesPsfYear") * getVal("grossSf")) / 12,
     growthByYear: getGrowthArray(),
+    inflationByYear: getInflationArray(),
     mlas,
     tenants,
     opexLines,
@@ -750,13 +777,20 @@ function marketRentAtMonth(assumptions, baseRent, month) {
   return rent;
 }
 
-function opexMonthlyAndReimbursement(assumptions, activeTenantSfMap, activeSf, totalSf) {
+function inflationFactorAtMonth(assumptions, month) {
+  let factor = 1;
+  const yearIdx = Math.min(Math.floor((month - 1) / 12), 9);
+  for (let y = 0; y <= yearIdx; y++) factor *= (1 + (assumptions.inflationByYear?.[y] || 0));
+  return factor;
+}
+
+function opexMonthlyAndReimbursement(assumptions, activeTenantSfMap, activeSf, totalSf, month) {
   let opexExpense = 0;
   let reimbursements = 0;
 
   for (const line of assumptions.opexLines) {
-    const annual = line.amountType === "$/SF/Year" ? line.amount * assumptions.grossSf : line.amount;
-    const monthly = annual / 12;
+    const annualBase = line.amountType === "$/SF/Year" ? line.amount * assumptions.grossSf : line.amount;
+    const monthly = (annualBase / 12) * inflationFactorAtMonth(assumptions, month);
     opexExpense += monthly;
 
     if (!line.reimbursable) continue;
@@ -833,9 +867,10 @@ function runModel(a) {
         if (post === secondGenStartPost) {
           const weightedTi = (renewProb * (mla.tiRenewal || 0)) + (newProb * (mla.tiNew || 0));
           const weightedLc = (renewProb * (mla.lcRenewal || 0)) + (newProb * (mla.lcNew || 0));
-          tiCosts += t.sf * weightedTi;
+          const inf = inflationFactorAtMonth(a, m);
+          tiCosts += t.sf * weightedTi * inf;
           const leaseStartPsf = marketRentPsfAtMonth(a, mla, m, t.sf);
-          lcCosts += t.sf * leaseStartPsf * mla.leaseTerm * weightedLc;
+          lcCosts += t.sf * leaseStartPsf * mla.leaseTerm * weightedLc * inf;
         }
       }
     }
@@ -843,7 +878,7 @@ function runModel(a) {
     scheduledBaseRent = Math.max(0, potentialBaseRent - absorptionTurnoverVacancy - freeRent);
 
     const activeSf = Object.values(activeTenantSfMap).reduce((s, x) => s + x, 0);
-    const { opexExpense, reimbursements } = opexMonthlyAndReimbursement(a, activeTenantSfMap, activeSf, a.grossSf);
+    const { opexExpense, reimbursements } = opexMonthlyAndReimbursement(a, activeTenantSfMap, activeSf, a.grossSf, m);
     const netOpex = opexExpense - reimbursements;
 
     const capex = a.capexSchedule[m] || 0;
@@ -1143,15 +1178,17 @@ function renderCashFlowStatement(result) {
 
 function renderCapexSummary() {
   let total = 0;
-  let reimb = 0;
+  let monthlyTotal = 0;
   for (let i = 1; i <= state.capexCount; i++) {
     if (!document.getElementById(`capex_amount_${i}`)) continue;
-    const amt = getVal(`capex_amount_${i}`);
-    const pct = getVal(`capex_reimb_${i}`);
-    total += amt;
-    reimb += amt * pct;
+    const totalCost = getVal(`capex_amount_${i}`);
+    const start = Math.max(1, Math.round(getVal(`capex_start_${i}`)));
+    const stop = Math.max(start, Math.round(getVal(`capex_stop_${i}`)));
+    const months = stop - start + 1;
+    total += totalCost;
+    monthlyTotal += months > 0 ? (totalCost / months) : 0;
   }
-  document.getElementById("capexSummary").textContent = `Total Capex: ${formatCurrencySmart(total)} | Potential Lender Reimbursement: ${formatCurrencySmart(reimb)}`;
+  document.getElementById("capexSummary").textContent = `Total Capex (all lines): ${formatCurrencySmart(total)} | Sum of line monthly costs: ${formatCurrencySmart(monthlyTotal)}`;
 }
 
 function toHtmlTable(columns, rows) {
@@ -1320,15 +1357,16 @@ function escapeXml(value) {
 
 function workbookStylesXml() {
   return `<Styles>
-    <Style ss:ID="Default" ss:Name="Normal"><Alignment ss:Vertical="Center"/><Borders/><Font ss:FontName="Calibri" ss:Size="9"/><Interior/><NumberFormat/><Protection/></Style>
-    <Style ss:ID="Hdr"><Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#0F1F3D" ss:Pattern="Solid"/><Alignment ss:Horizontal="Center" ss:Vertical="Center"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1"/></Borders></Style>
-    <Style ss:ID="Label"><Font ss:FontName="Calibri" ss:Size="9"/><Alignment ss:Horizontal="Left" ss:Vertical="Center"/></Style>
-    <Style ss:ID="Val"><Font ss:FontName="Calibri" ss:Size="9"/><Alignment ss:Horizontal="Right" ss:Vertical="Center"/></Style>
-    <Style ss:ID="Currency"><Font ss:FontName="Calibri" ss:Size="9"/><Alignment ss:Horizontal="Right" ss:Vertical="Center"/><NumberFormat ss:Format="\&quot;$\&quot;#,##0.00_);[Red](\&quot;$\&quot;#,##0.00)"/></Style>
-    <Style ss:ID="Date"><Font ss:FontName="Calibri" ss:Size="9"/><Alignment ss:Horizontal="Center" ss:Vertical="Center"/><NumberFormat ss:Format="mm/dd/yyyy"/></Style>
+    <Style ss:ID="Default" ss:Name="Normal"><Alignment ss:Vertical="Center"/><Borders/><Font ss:FontName="Calibri" ss:Size="9" ss:Color="#000000"/><Interior ss:Color="#FFFFFF" ss:Pattern="Solid"/><NumberFormat/><Protection/></Style>
+    <Style ss:ID="TopHdrLabel"><Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1" ss:Color="#000000"/><Interior ss:Color="#D1D5DB" ss:Pattern="Solid"/><Alignment ss:Horizontal="Left" ss:Vertical="Center"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#B5BECF"/></Borders></Style>
+    <Style ss:ID="TopHdrVal"><Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1" ss:Color="#000000"/><Interior ss:Color="#E5E7EB" ss:Pattern="Solid"/><Alignment ss:Horizontal="Center" ss:Vertical="Center"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#B5BECF"/></Borders></Style>
+    <Style ss:ID="DateHdrLabel"><Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1" ss:Color="#000000"/><Interior ss:Color="#D1D5DB" ss:Pattern="Solid"/><Alignment ss:Horizontal="Left" ss:Vertical="Center"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#B5BECF"/></Borders></Style>
+    <Style ss:ID="DateHdrVal"><Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1" ss:Color="#0F1F3D"/><Interior ss:Color="#FFFFFF" ss:Pattern="Solid"/><Alignment ss:Horizontal="Center" ss:Vertical="Center"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#B5BECF"/></Borders><NumberFormat ss:Format="mm/dd/yyyy"/></Style>
+    <Style ss:ID="Label"><Font ss:FontName="Calibri" ss:Size="9" ss:Color="#000000"/><Interior ss:Color="#F3F4F6" ss:Pattern="Solid"/><Alignment ss:Horizontal="Left" ss:Vertical="Center"/></Style>
+    <Style ss:ID="Currency"><Font ss:FontName="Calibri" ss:Size="9" ss:Color="#000000"/><Interior ss:Color="#FFFFFF" ss:Pattern="Solid"/><Alignment ss:Horizontal="Right" ss:Vertical="Center"/><NumberFormat ss:Format="\&quot;$\&quot;#,##0.00_);[Red](\&quot;$\&quot;#,##0.00)"/></Style>
     <Style ss:ID="Section"><Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#0F1F3D" ss:Pattern="Solid"/><Alignment ss:Horizontal="Left" ss:Vertical="Center"/></Style>
-    <Style ss:ID="SubtotalLabel"><Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1"/><Alignment ss:Horizontal="Left" ss:Vertical="Center"/><Borders><Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#6F95D9"/></Borders></Style>
-    <Style ss:ID="SubtotalCurrency"><Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1"/><Alignment ss:Horizontal="Right" ss:Vertical="Center"/><Borders><Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#6F95D9"/></Borders><NumberFormat ss:Format="\&quot;$\&quot;#,##0.00_);[Red](\&quot;$\&quot;#,##0.00)"/></Style>
+    <Style ss:ID="SubtotalLabel"><Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1" ss:Color="#000000"/><Interior ss:Color="#F3F4F6" ss:Pattern="Solid"/><Alignment ss:Horizontal="Left" ss:Vertical="Center"/><Borders><Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#6F95D9"/></Borders></Style>
+    <Style ss:ID="SubtotalCurrency"><Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1" ss:Color="#000000"/><Interior ss:Color="#FFFFFF" ss:Pattern="Solid"/><Alignment ss:Horizontal="Right" ss:Vertical="Center"/><Borders><Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#6F95D9"/></Borders><NumberFormat ss:Format="\&quot;$\&quot;#,##0.00_);[Red](\&quot;$\&quot;#,##0.00)"/></Style>
   </Styles>`;
 }
 
@@ -1349,14 +1387,14 @@ function statementWorksheetXml(result, sheetName, periodSeries) {
   const colDefs = ['<Column ss:Width="260"/>', ...periodSeries.map(() => '<Column ss:Width="96"/>')].join('');
   const rowXml = [];
 
-  const monthCells = [`<Cell ss:StyleID="Hdr"><Data ss:Type="String">Month</Data></Cell>`];
-  periodSeries.forEach((p) => monthCells.push(`<Cell ss:StyleID="Hdr"><Data ss:Type="Number">${Number(p.periodIndex ?? p.period ?? 0)}</Data></Cell>`));
+  const monthCells = [`<Cell ss:StyleID="TopHdrLabel"><Data ss:Type="String">Month</Data></Cell>`];
+  periodSeries.forEach((p) => monthCells.push(`<Cell ss:StyleID="TopHdrVal"><Data ss:Type="Number">${Number(p.periodIndex ?? p.period ?? 0)}</Data></Cell>`));
   rowXml.push(`<Row ss:AutoFitHeight="0" ss:Height="20">${monthCells.join('')}</Row>`);
 
-  const dateCells = [`<Cell ss:StyleID="Hdr"><Data ss:Type="String">Date</Data></Cell>`];
+  const dateCells = [`<Cell ss:StyleID="DateHdrLabel"><Data ss:Type="String">Date</Data></Cell>`];
   periodSeries.forEach((p) => {
     const iso = p.excelDate || result.assumptions.acquisitionDate;
-    dateCells.push(`<Cell ss:StyleID="Date"><Data ss:Type="DateTime">${iso}T00:00:00.000</Data></Cell>`);
+    dateCells.push(`<Cell ss:StyleID="DateHdrVal"><Data ss:Type="DateTime">${iso}T00:00:00.000</Data></Cell>`);
   });
   rowXml.push(`<Row ss:AutoFitHeight="0" ss:Height="20">${dateCells.join('')}</Row>`);
 
@@ -1614,6 +1652,9 @@ function applyPrefillFromObject(obj) {
   });
   if (typeof obj.exitCapRate === 'number') { setVal('exitCapRate', obj.exitCapRate); updates += 1; }
   if (typeof obj.exit_cap_rate === 'number') { setVal('exitCapRate', obj.exit_cap_rate); updates += 1; }
+  if (typeof obj.reservesPsfYear === 'number') { setVal('reservesPsfYear', obj.reservesPsfYear); updates += 1; }
+  if (typeof obj.reserves_psf_year === 'number') { setVal('reservesPsfYear', obj.reserves_psf_year); updates += 1; }
+  if (typeof obj.reservesMonthly === 'number' && typeof obj.grossSf === 'number' && obj.grossSf > 0) { setVal('reservesPsfYear', (obj.reservesMonthly * 12) / obj.grossSf); updates += 1; }
   syncClosingCostsBreakdown();
   const tenants = Array.isArray(obj.tenants) ? obj.tenants : [];
   return { updates, tenants };
@@ -1892,7 +1933,7 @@ function renderStepCalculationsForDialog(tenantIdx) {
   rows.forEach((row) => {
     const selects = row.querySelectorAll('select');
     const calcType = selects[0]?.value || "Rent Value";
-    const rentType = selects[1]?.value || "$/SF/Mo";
+    const rentType = selects[1]?.value || "$/SF/Year";
     const valueInput = row.querySelector('input[data-format]');
     const fmt = valueInput?.dataset.format || (calcType === "% Increase" ? "percent" : "currency");
     const rawValue = parseFormatted(valueInput?.dataset.raw ?? valueInput?.value, fmt);
@@ -1925,7 +1966,7 @@ function addStepRowToDialog(step = {}) {
   const date = step.date || "";
   const value = Number(step.value ?? step.rent ?? 0);
   const calcType = step.calcType || "Rent Value";
-  const rentType = step.rentType || "$/SF/Mo";
+  const rentType = step.rentType || "$/SF/Year";
   const valueFormat = calcType === "% Increase" ? "percent" : "currency";
   const tr = document.createElement("tr");
   tr.innerHTML = `
@@ -1986,7 +2027,7 @@ function saveRentStepsFromDialog() {
       const date = row.querySelector('input[type="date"]').value;
       const selects = row.querySelectorAll('select');
       const calcType = selects[0]?.value || "Rent Value";
-      const rentType = selects[1]?.value || "$/SF/Mo";
+      const rentType = selects[1]?.value || "$/SF/Year";
       const valueInput = row.querySelector('input[data-format]');
       const fmt = valueInput?.dataset.format || (calcType === "% Increase" ? "percent" : "currency");
       const value = parseFormatted(valueInput?.dataset.raw ?? valueInput?.value, fmt);
